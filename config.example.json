@@ -1,0 +1,6 @@
+{
+  "orchestrator_ws_url": "ws://your-server:8080/ws/agent",
+  "agent_token": "your-token-here",
+  "poll_interval": 1.0,
+  "wal_poll_interval_ms": 100
+}
