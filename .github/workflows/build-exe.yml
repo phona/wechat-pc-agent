@@ -1,0 +1,40 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Build portable package
+        shell: cmd
+        run: build.bat
+
+      - name: Archive portable package
+        shell: pwsh
+        run: Compress-Archive -Path release/WeChat-Agent/* -DestinationPath release/WeChat-Agent-windows-x64.zip -Force
+
+      - name: Upload portable folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeChat-Agent-portable
+          path: release/WeChat-Agent
+          if-no-files-found: error
+
+      - name: Upload zip archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeChat-Agent-windows-x64
+          path: release/WeChat-Agent-windows-x64.zip
+          if-no-files-found: error

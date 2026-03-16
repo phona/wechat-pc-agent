@@ -1,18 +1,38 @@
 @echo off
+setlocal
+
+where py >nul 2>nul
+if errorlevel 1 (
+    set "PYTHON=python"
+) else (
+    set "PYTHON=py"
+)
+
 echo === Building WeChat Agent portable package ===
 echo.
 
 REM Install build dependencies
-pip install pyinstaller pyautogui wxauto wdecipher pydantic PyQt6 httpx websockets
+%PYTHON% -m pip install --upgrade pip
+if errorlevel 1 (
+    echo ERROR: Failed to upgrade pip
+    exit /b 1
+)
+
+%PYTHON% -m pip install .[dev]
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies
     exit /b 1
 )
 
 REM Build with PyInstaller
-pyinstaller build.spec --clean --noconfirm
+%PYTHON% -m PyInstaller build.spec --clean --noconfirm
 if errorlevel 1 (
     echo ERROR: PyInstaller build failed
+    exit /b 1
+)
+
+if not exist dist\WeChat-Agent\WeChat-Agent.exe (
+    echo ERROR: Expected dist\WeChat-Agent\WeChat-Agent.exe was not created
     exit /b 1
 )
 
@@ -21,10 +41,18 @@ if exist release\WeChat-Agent rmdir /s /q release\WeChat-Agent
 mkdir release\WeChat-Agent
 
 REM Copy built files
-xcopy /E /I dist\WeChat-Agent\* release\WeChat-Agent\
+xcopy /E /I /Y dist\WeChat-Agent\* release\WeChat-Agent\
+if errorlevel 1 (
+    echo ERROR: Failed to copy build output into release\WeChat-Agent
+    exit /b 1
+)
 
 REM Copy config template
-copy config.example.json release\WeChat-Agent\config.json
+copy /Y config.example.json release\WeChat-Agent\config.json
+if errorlevel 1 (
+    echo ERROR: Failed to copy config template
+    exit /b 1
+)
 
 echo.
 echo === Build complete ===
