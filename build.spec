@@ -11,6 +11,8 @@ a = Analysis(
         'wxauto',
         'wdecipher',
         'pyautogui',
+        'PIL',
+        'PIL.Image',
         # Networking
         'websockets',
         'websockets.legacy',
@@ -36,7 +38,6 @@ a = Analysis(
         'matplotlib',
         'numpy',
         'scipy',
-        'PIL',
         'cv2',
     ],
     noarchive=False,

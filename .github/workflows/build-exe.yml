@@ -16,6 +16,20 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
+          cache-dependency-path: |
+            pyproject.toml
+            build.bat
+            build.spec
+
+      - name: Install test dependencies
+        shell: cmd
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .[dev]
+
+      - name: Run tests
+        shell: cmd
+        run: pytest -q
 
       - name: Build portable package
         shell: cmd

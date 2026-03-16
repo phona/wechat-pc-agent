@@ -57,6 +57,23 @@ def test_connect_import_failure():
                 assert any("Verify wxauto is installed" in line for line in s.last_connect_diagnostics)
 
 
+def test_connect_import_failure_missing_pil_hint():
+    s = WeChatSession()
+    real_import = __import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "wxauto":
+            raise ImportError("No module named 'PIL'")
+        return real_import(name, *args, **kwargs)
+
+    with patch("wechat.session.sys.platform", "win32"):
+        with patch.object(s, "_probe_admin_status"), patch.object(s, "_probe_wechat_process"):
+            with patch("builtins.__import__", side_effect=fake_import):
+                assert s.connect() is False
+                assert s.last_connect_error == "wxauto import failed: No module named 'PIL'"
+                assert any("missing Pillow/PIL" in line for line in s.last_connect_diagnostics)
+
+
 def test_wx_property_raises_when_not_connected():
     s = WeChatSession()
     with pytest.raises(RuntimeError, match="not connected"):

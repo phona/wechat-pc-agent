@@ -31,7 +31,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-%PYTHON% -m pip install pyinstaller pyautogui PyQt6 httpx websockets pydantic wdecipher
+%PYTHON% -m pip install pyinstaller pyautogui Pillow PyQt6 httpx websockets pydantic wdecipher
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies
     exit /b 1

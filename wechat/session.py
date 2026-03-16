@@ -110,6 +110,8 @@ class WeChatSession:
 
         hints: list[str] = []
         if import_failed:
+            if "No module named 'PIL'" in self.last_connect_error:
+                hints.append("This build is missing Pillow/PIL; rebuild the Windows package with Pillow included.")
             hints.append("Verify wxauto is installed in the same Python environment as this app.")
             return hints
 
