@@ -1,14 +1,27 @@
 @echo off
 setlocal
 
-where py >nul 2>nul
-if errorlevel 1 (
-    set "PYTHON=python"
-) else (
-    set "PYTHON=py"
+if not defined PYTHON (
+    where python >nul 2>nul
+    if errorlevel 1 (
+        where py >nul 2>nul
+        if errorlevel 1 (
+            echo ERROR: Could not find a usable Python interpreter
+            exit /b 1
+        )
+        set "PYTHON=py"
+    ) else (
+        set "PYTHON=python"
+    )
 )
 
 echo === Building WeChat Agent portable package ===
+echo.
+%PYTHON% --version
+if errorlevel 1 (
+    echo ERROR: Failed to run %PYTHON%
+    exit /b 1
+)
 echo.
 
 REM Install build dependencies

@@ -23,9 +23,17 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 
+[tool.setuptools]
+py-modules = ["main", "config"]
+
+[tool.setuptools.packages.find]
+include = ["app*", "bridge*", "utils*", "wechat*"]
+exclude = ["tests*"]
+namespaces = false
+
 [build-system]
-requires = ["setuptools>=69.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+requires = ["setuptools>=69.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project.scripts]
 wechat-agent = "main:main"

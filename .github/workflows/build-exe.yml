@@ -19,6 +19,8 @@ jobs:
 
       - name: Build portable package
         shell: cmd
+        env:
+          PYTHON: python
         run: build.bat
 
       - name: Archive portable package
