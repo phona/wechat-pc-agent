@@ -100,7 +100,17 @@ class MainWindow(QMainWindow):
             self._start_bridge()
         else:
             self.status_panel.set_wechat_status(False)
-            self.log_viewer.append("Failed to connect to WeChat. Is it running?", "ERROR")
+            reason = self.session.last_connect_error or "Is it running and logged in?"
+            self.log_viewer.append(f"Failed to connect to WeChat: {reason}", "ERROR")
+            if self.session.last_connect_diagnostics:
+                self.log_viewer.append("Connect diagnostics:", "WARN")
+                for line in self.session.last_connect_diagnostics:
+                    self.log_viewer.append(f"  {line}", "INFO")
+            QMessageBox.critical(
+                self,
+                "WeChat Connection Error",
+                f"Failed to connect to WeChat:\n{reason}",
+            )
 
     def _refresh_chats(self) -> None:
         if not self.session.is_ready():
@@ -235,9 +245,13 @@ class MainWindow(QMainWindow):
         self.log_viewer.append("All tasks stopped", "WARN")
 
     def _open_settings(self) -> None:
-        dialog = SettingsDialog(self.config, self)
-        if dialog.exec():
-            self.log_viewer.append("Settings saved (reconnect to apply)", "SUCCESS")
+        try:
+            dialog = SettingsDialog(self.config, self)
+            if dialog.exec():
+                self.log_viewer.append("Settings saved (reconnect to apply)", "SUCCESS")
+        except Exception as exc:
+            self.log_viewer.append(f"Failed to open settings: {exc}", "ERROR")
+            QMessageBox.critical(self, "Settings Error", f"Failed to open settings: {exc}")
 
     def _check_health(self) -> None:
         if self.ws_bridge:

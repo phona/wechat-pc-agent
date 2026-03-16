@@ -1,4 +1,7 @@
 import logging
+import platform
+import subprocess
+import sys
 import time
 from typing import Optional, Callable
 
@@ -11,18 +14,113 @@ class WeChatSession:
     def __init__(self):
         self._wx = None
         self._listen_callbacks: dict[str, Callable] = {}
+        self.last_connect_error = ""
+        self.last_connect_diagnostics: list[str] = []
+        self._last_process_probe: bool | None = None
 
     def connect(self) -> bool:
         """Attach to the running WeChat PC window. Returns True if successful."""
+        self._wx = None
+        self.last_connect_error = ""
+        self.last_connect_diagnostics = []
+        self._last_process_probe = None
+        self._record_connect_diag(f"Starting attach on {platform.platform()}")
+        self._record_connect_diag(f"Python {platform.python_version()} at {sys.executable}")
+        self._probe_admin_status()
+        self._probe_wechat_process()
+
         try:
-            from wxauto import WeChat
+            import wxauto
+            self._record_wxauto_details(wxauto)
+            WeChat = wxauto.WeChat
+        except Exception as e:
+            self.last_connect_error = f"wxauto import failed: {e}"
+            self._record_connect_diag(self.last_connect_error)
+            self._append_connect_hints(import_failed=True)
+            logger.exception("Failed to import wxauto while connecting to WeChat")
+            return False
+
+        try:
             self._wx = WeChat()
+            self._record_connect_diag("wxauto.WeChat() attached successfully")
             logger.info("Connected to WeChat PC window")
             return True
         except Exception as e:
-            logger.error("Failed to connect to WeChat: %s", e)
             self._wx = None
+            self.last_connect_error = str(e) or e.__class__.__name__
+            self._record_connect_diag(
+                f"wxauto.WeChat() raised {e.__class__.__name__}: {self.last_connect_error}"
+            )
+            self._append_connect_hints()
+            logger.exception("Failed to connect to WeChat")
             return False
+
+    def _record_connect_diag(self, message: str) -> None:
+        self.last_connect_diagnostics.append(message)
+        logger.info("WeChat connect: %s", message)
+
+    def _record_wxauto_details(self, wxauto_module) -> None:
+        module_file = getattr(wxauto_module, "__file__", None)
+        module_version = getattr(wxauto_module, "__version__", None)
+        if isinstance(module_file, str) and module_file:
+            self._record_connect_diag(f"wxauto module: {module_file}")
+        if isinstance(module_version, str) and module_version:
+            self._record_connect_diag(f"wxauto version: {module_version}")
+
+    def _probe_admin_status(self) -> None:
+        if sys.platform != "win32":
+            self._record_connect_diag("Non-Windows runtime detected; desktop attach is Windows-only")
+            return
+        try:
+            import ctypes
+            is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
+            self._record_connect_diag(f"Running as administrator: {'yes' if is_admin else 'no'}")
+        except Exception as e:
+            self._record_connect_diag(f"Admin privilege probe failed: {e}")
+
+    def _probe_wechat_process(self) -> None:
+        if sys.platform != "win32":
+            return
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq WeChat.exe", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        except Exception as e:
+            self._record_connect_diag(f"WeChat process probe failed: {e}")
+            return
+
+        stdout = (result.stdout or "").strip()
+        self._last_process_probe = "WeChat.exe" in stdout
+        if self._last_process_probe:
+            self._record_connect_diag("WeChat.exe process detected")
+        else:
+            self._record_connect_diag("WeChat.exe process not detected")
+
+    def _append_connect_hints(self, import_failed: bool = False) -> None:
+        for hint in self._build_connect_hints(import_failed):
+            self._record_connect_diag(f"Hint: {hint}")
+
+    def _build_connect_hints(self, import_failed: bool) -> list[str]:
+        if sys.platform != "win32":
+            return ["Run this agent on Windows 10 or 11 with desktop WeChat."]
+
+        hints: list[str] = []
+        if import_failed:
+            hints.append("Verify wxauto is installed in the same Python environment as this app.")
+            return hints
+
+        if self._last_process_probe is False:
+            hints.append("Start desktop WeChat and log in before clicking Connect WeChat.")
+        else:
+            hints.append("Make sure WeChat is open to the main chat window, not just the login QR screen.")
+        hints.append("Run WeChat and this agent at the same privilege level; admin/admin is the safest setup.")
+        hints.append("Keep WeChat visible and not minimized during the initial attach.")
+        hints.append("If WeChat recently updated, wxauto may not match the current UI layout.")
+        return hints
 
     @property
     def wx(self):

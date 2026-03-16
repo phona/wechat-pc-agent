@@ -15,16 +15,46 @@ def session():
 def test_connect_success():
     s = WeChatSession()
     mock_wx = MagicMock()
-    with patch.dict("sys.modules", {"wxauto": MagicMock(WeChat=MagicMock(return_value=mock_wx))}):
-        assert s.connect() is True
-        assert s._wx is mock_wx
+    s.last_connect_error = "old error"
+    with patch("wechat.session.sys.platform", "win32"):
+        with patch.object(s, "_probe_admin_status"), patch.object(s, "_probe_wechat_process"):
+            with patch.dict("sys.modules", {"wxauto": MagicMock(WeChat=MagicMock(return_value=mock_wx))}):
+                assert s.connect() is True
+                assert s._wx is mock_wx
+                assert s.last_connect_error == ""
+                assert "wxauto.WeChat() attached successfully" in s.last_connect_diagnostics
 
 
 def test_connect_failure():
     s = WeChatSession()
-    with patch.dict("sys.modules", {"wxauto": MagicMock(WeChat=MagicMock(side_effect=Exception("no window")))}):
-        assert s.connect() is False
-        assert s._wx is None
+    with patch("wechat.session.sys.platform", "win32"):
+        with patch.object(s, "_probe_admin_status"), patch.object(
+            s, "_probe_wechat_process", side_effect=lambda: setattr(s, "_last_process_probe", False)
+        ):
+            with patch.dict("sys.modules", {"wxauto": MagicMock(WeChat=MagicMock(side_effect=Exception("no window")))}):
+                assert s.connect() is False
+                assert s._wx is None
+                assert s.last_connect_error == "no window"
+                assert "wxauto.WeChat() raised Exception: no window" in s.last_connect_diagnostics
+                assert any("Start desktop WeChat" in line for line in s.last_connect_diagnostics)
+
+
+def test_connect_import_failure():
+    s = WeChatSession()
+    real_import = __import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "wxauto":
+            raise ImportError("missing wxauto")
+        return real_import(name, *args, **kwargs)
+
+    with patch("wechat.session.sys.platform", "win32"):
+        with patch.object(s, "_probe_admin_status"), patch.object(s, "_probe_wechat_process"):
+            with patch("builtins.__import__", side_effect=fake_import):
+                assert s.connect() is False
+                assert s._wx is None
+                assert s.last_connect_error == "wxauto import failed: missing wxauto"
+                assert any("Verify wxauto is installed" in line for line in s.last_connect_diagnostics)
 
 
 def test_wx_property_raises_when_not_connected():
