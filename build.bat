@@ -25,16 +25,28 @@ if errorlevel 1 (
 echo.
 
 REM Install build dependencies
-%PYTHON% -m pip install --upgrade pip
+%PYTHON% -m pip install --upgrade pip setuptools wheel
 if errorlevel 1 (
-    echo ERROR: Failed to upgrade pip
+    echo ERROR: Failed to install base build tooling
     exit /b 1
 )
 
-%PYTHON% -m pip install .[dev]
+%PYTHON% -m pip install pyinstaller pyautogui PyQt6 httpx websockets pydantic wdecipher
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies
     exit /b 1
+)
+
+REM wxauto is documented for pip install, but PyPI availability has been inconsistent.
+REM Fall back to the official GitHub repository if the package cannot be resolved.
+%PYTHON% -m pip install "wxauto>=3.9.0"
+if errorlevel 1 (
+    echo WARN: Failed to install wxauto from PyPI, retrying from GitHub...
+    %PYTHON% -m pip install git+https://github.com/cluic/wxauto.git
+    if errorlevel 1 (
+        echo ERROR: Failed to install wxauto from PyPI and GitHub
+        exit /b 1
+    )
 )
 
 REM Build with PyInstaller
