@@ -58,6 +58,7 @@ class WeChatSession:
             self._record_connect_diag(
                 f"WeChat() raised {e.__class__.__name__}: {self.last_connect_error}"
             )
+            self._probe_uia_classnames()
             self._append_connect_hints()
             logger.exception("Failed to connect to WeChat")
             return False
@@ -156,6 +157,52 @@ class WeChatSession:
                 self._record_connect_diag("No WeChat-related windows found")
         except Exception as e:
             self._record_connect_diag(f"Window enumeration failed: {e}")
+
+    def _probe_uia_classnames(self) -> None:
+        """Use UIA to inspect WeChat window's actual ClassName for debugging."""
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+            import ctypes.wintypes
+
+            EnumWindows = ctypes.windll.user32.EnumWindows
+            GetClassNameW = ctypes.windll.user32.GetClassNameW
+            IsWindowVisible = ctypes.windll.user32.IsWindowVisible
+            WNDENUMPROC = ctypes.WINFUNCTYPE(
+                ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM
+            )
+
+            qt_hwnds = []
+
+            def enum_cb(hwnd, _):
+                if not IsWindowVisible(hwnd):
+                    return True
+                cls_buf = ctypes.create_unicode_buffer(256)
+                GetClassNameW(hwnd, cls_buf, 256)
+                if "Qt5" in cls_buf.value or "Qt6" in cls_buf.value:
+                    qt_hwnds.append(hwnd)
+                return True
+
+            EnumWindows(WNDENUMPROC(enum_cb), 0)
+
+            try:
+                from wxauto4 import uia
+            except ImportError:
+                self._record_connect_diag("UIA probe skipped: wxauto4.uia not available")
+                return
+
+            for hwnd in qt_hwnds:
+                try:
+                    ctrl = uia.ControlFromHandle(hwnd)
+                    if ctrl is not None:
+                        self._record_connect_diag(
+                            f"UIA probe: hwnd={hwnd} ClassName='{ctrl.ClassName}' Name='{ctrl.Name}'"
+                        )
+                except Exception:
+                    pass
+        except Exception as e:
+            self._record_connect_diag(f"UIA probe failed: {e}")
 
     def _append_connect_hints(self, import_failed: bool = False) -> None:
         for hint in self._build_connect_hints(import_failed):
