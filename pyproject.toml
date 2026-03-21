@@ -12,6 +12,7 @@ dependencies = [
     "websockets>=12.0",
     "wdecipher>=0.1.0",
     "pydantic>=2.6.0",
+    "pyperclip>=1.8.0",
 ]
 
 [project.optional-dependencies]

@@ -20,8 +20,6 @@ def test_defaults():
     assert cfg.orchestrator_url == "http://localhost:8080"
     assert cfg.orchestrator_ws_url == "ws://localhost:8080/ws/agent"
     assert cfg.agent_token == ""
-    assert cfg.poll_interval == 1.0
-    assert cfg.scroll_delay_ms == 800
     assert cfg.max_history_days == 30
     assert cfg.sync_state_path == ""
     assert cfg.wechat_db_dir == ""
@@ -50,7 +48,6 @@ def test_save_and_load(tmp_config_dir):
         orchestrator_url="http://10.0.0.1:8080",
         orchestrator_ws_url="ws://10.0.0.1:8080/ws/agent",
         agent_token="my-secret",
-        poll_interval=2.5,
     )
     cfg.save()
 
@@ -64,7 +61,6 @@ def test_save_and_load(tmp_config_dir):
     assert loaded.orchestrator_url == "http://10.0.0.1:8080"
     assert loaded.orchestrator_ws_url == "ws://10.0.0.1:8080/ws/agent"
     assert loaded.agent_token == "my-secret"
-    assert loaded.poll_interval == 2.5
 
 
 def test_load_from_env(tmp_config_dir):
@@ -73,8 +69,6 @@ def test_load_from_env(tmp_config_dir):
         "ORCHESTRATOR_URL": "http://env-host:8080",
         "ORCHESTRATOR_WS_URL": "ws://env-host:8080/ws/agent",
         "AGENT_TOKEN": "env-token",
-        "POLL_INTERVAL": "3.0",
-        "SCROLL_DELAY_MS": "500",
         "MAX_HISTORY_DAYS": "60",
         "SYNC_STATE_PATH": "/tmp/sync.json",
     }
@@ -84,8 +78,6 @@ def test_load_from_env(tmp_config_dir):
     assert cfg.orchestrator_url == "http://env-host:8080"
     assert cfg.orchestrator_ws_url == "ws://env-host:8080/ws/agent"
     assert cfg.agent_token == "env-token"
-    assert cfg.poll_interval == 3.0
-    assert cfg.scroll_delay_ms == 500
     assert cfg.max_history_days == 60
     assert cfg.sync_state_path == "/tmp/sync.json"
 
@@ -94,9 +86,8 @@ def test_load_defaults_when_no_env(tmp_config_dir):
     """When no config file and no env vars, use defaults."""
     env_keys = [
         "ORCHESTRATOR_URL", "ORCHESTRATOR_WS_URL", "AGENT_TOKEN",
-        "POLL_INTERVAL", "SCROLL_DELAY_MS", "MAX_HISTORY_DAYS",
-        "SYNC_STATE_PATH", "WECHAT_DB_DIR", "DECRYPTED_DB_DIR",
-        "WAL_POLL_INTERVAL_MS", "DB_SYNC_TIMESTAMP",
+        "MAX_HISTORY_DAYS", "SYNC_STATE_PATH", "WECHAT_DB_DIR",
+        "DECRYPTED_DB_DIR", "WAL_POLL_INTERVAL_MS", "DB_SYNC_TIMESTAMP",
     ]
     clean_env = {k: v for k, v in os.environ.items() if k not in env_keys}
     with patch.dict(os.environ, clean_env, clear=True):

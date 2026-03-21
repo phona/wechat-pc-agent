@@ -17,12 +17,10 @@ class CommandDispatcher:
       - send_file: Send a file to a contact
       - open_chat: Open a chat window
       - list_contacts: Get all sessions and friends
-      - collect_history: Trigger history collection (via callback)
     """
 
-    def __init__(self, session: WeChatSession, history_callback=None):
+    def __init__(self, session: WeChatSession):
         self.session = session
-        self._history_callback = history_callback
 
     def dispatch(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
         """Route an action to the right handler. Returns result dict."""
@@ -70,12 +68,3 @@ class CommandDispatcher:
         result = collector.collect_all()
         return {"status": "ok", "data": result}
 
-    def _do_collect_history(self, params: dict) -> dict:
-        name = params.get("name", "")
-        days = params.get("days", 30)
-        if not name:
-            return {"status": "error", "error": "missing 'name' param"}
-        if self._history_callback:
-            self._history_callback(name, days)
-            return {"status": "ok", "data": {"name": name, "days": days, "queued": True}}
-        return {"status": "error", "error": "history collection not available"}

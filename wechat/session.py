@@ -1,9 +1,11 @@
 import logging
+import math
 import platform
+import random
 import subprocess
 import sys
 import time
-from typing import Optional, Callable
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -13,10 +15,10 @@ class WeChatSession:
 
     def __init__(self):
         self._wx = None
-        self._listen_callbacks: dict[str, Callable] = {}
         self.last_connect_error = ""
         self.last_connect_diagnostics: list[str] = []
         self._last_process_probe: bool | None = None
+        self.ui_simulator = None  # Optional UISimulator for advanced human sim
 
     def connect(self) -> bool:
         """Attach to the running WeChat PC window. Returns True if successful."""
@@ -150,17 +152,6 @@ class WeChatSession:
             logger.error("Failed to get session list: %s", e)
             return []
 
-    def get_chat_messages(self, chat_name: Optional[str] = None) -> list:
-        """Get messages from current or specified chat."""
-        try:
-            if chat_name:
-                self._wx.ChatWith(chat_name)
-            msgs = self._wx.GetAllMessage()
-            return msgs if msgs else []
-        except Exception as e:
-            logger.error("Failed to get messages from %s: %s", chat_name, e)
-            return []
-
     def send_text(self, chat_name: str, message: str) -> bool:
         """Send a text message to a chat."""
         try:
@@ -171,6 +162,182 @@ class WeChatSession:
             logger.error("Failed to send to %s: %s", chat_name, e)
             return False
 
+    def send_text_human(self, chat_name: str, message: str) -> bool:
+        """Send text via UI simulation: navigate, click input, type/paste, press Enter.
+
+        Falls back to send_text() on any failure.
+        """
+        try:
+            import pyautogui
+            import pyperclip
+        except ImportError:
+            logger.warning("pyautogui/pyperclip not available, falling back to SendMsg")
+            return self.send_text(chat_name, message)
+
+        message_entered = False
+        try:
+            # Step 1: Navigate to chat via wxauto
+            self._wx.ChatWith(chat_name)
+            time.sleep(random.uniform(0.2, 0.5))
+
+            # Step 2: Click the input box with human-like mouse movement
+            ix, iy = self._get_input_box_position()
+            if self.ui_simulator:
+                self.ui_simulator.bezier_move_click(ix, iy, pyautogui)
+            else:
+                self._bezier_move_click(ix, iy, pyautogui)
+            time.sleep(random.uniform(0.05, 0.15))
+
+            # Step 3: Type or paste the message
+            if self.ui_simulator:
+                if message.isascii():
+                    self.ui_simulator.type_text(message, pyautogui)
+                else:
+                    self.ui_simulator.paste_text(message, pyautogui)
+            elif message.isascii():
+                self._type_characters(message, pyautogui)
+            else:
+                # Chinese/mixed text: clipboard paste
+                pyperclip.copy(message)
+                time.sleep(random.uniform(0.1, 0.3))
+                pyautogui.hotkey("ctrl", "v")
+                time.sleep(random.uniform(0.1, 0.2))
+            message_entered = True
+
+            # Step 4: Press Enter to send
+            time.sleep(random.uniform(0.1, 0.4))
+            pyautogui.press("enter")
+            logger.info("Sent message (human sim) to %s", chat_name)
+            return True
+        except Exception as e:
+            logger.error("Human send failed for %s: %s", chat_name, e)
+            if message_entered:
+                # Message was typed/pasted — don't fall back to avoid double-send
+                return False
+            logger.info("Falling back to SendMsg for %s", chat_name)
+            return self.send_text(chat_name, message)
+
+    def _get_input_box_position(self) -> tuple[int, int]:
+        """Get the screen coordinates of the WeChat input box.
+
+        Strategy (most robust first):
+        1. UIA: find the actual Edit control in the chat panel
+        2. Cached position from a previous successful UIA lookup
+        3. Fallback: window rect with hardcoded offset
+        """
+        # Strategy 1: UIA tree search for the Edit control
+        pos = self._find_edit_control_via_uia()
+        if pos:
+            self._cached_input_box = pos
+            return pos
+
+        # Strategy 2: cached position from a previous lookup
+        if hasattr(self, "_cached_input_box") and self._cached_input_box:
+            logger.debug("Using cached input box position")
+            return self._cached_input_box
+
+        # Strategy 3: window rect fallback
+        return self._get_input_box_from_window_rect()
+
+    def _find_edit_control_via_uia(self) -> tuple[int, int] | None:
+        """Walk the UIA tree to find the message input Edit control."""
+        try:
+            import uiautomation as uia
+
+            # The WeChat chat window has an Edit control for message input.
+            # It's typically the last/deepest Edit control in the main window.
+            wechat_window = uia.ControlFromHandle(self._wx.UiaAPI.handle)
+            if not wechat_window:
+                return None
+
+            # Search for Edit controls — the message input box
+            edit = wechat_window.EditControl(searchDepth=10)
+            if edit and edit.BoundingRectangle.width() > 0:
+                rect = edit.BoundingRectangle
+                x = rect.left + rect.width() // 2
+                y = rect.top + rect.height() // 2
+                logger.debug("UIA Edit control found at (%d, %d)", x, y)
+                return (x, y)
+        except ImportError:
+            logger.debug("uiautomation not available, skipping UIA lookup")
+        except Exception as e:
+            logger.debug("UIA Edit search failed: %s", e)
+        return None
+
+    def _get_input_box_from_window_rect(self) -> tuple[int, int]:
+        """Fallback: estimate input box position from window rectangle."""
+        try:
+            import win32gui
+            hwnd = self._wx.UiaAPI.handle
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            x = (left + right) // 2
+            y = bottom - 80
+            return x, y
+        except Exception:
+            try:
+                rect = self._wx.UiaAPI.BoundingRectangle
+                x = rect.left + (rect.right - rect.left) // 2
+                y = rect.bottom - 80
+                return x, y
+            except Exception as e:
+                logger.warning("Cannot determine input box position: %s", e)
+                raise
+
+    def get_window_rect(self) -> tuple[int, int, int, int] | None:
+        """Get the WeChat window rectangle (left, top, right, bottom)."""
+        try:
+            import win32gui
+            hwnd = self._wx.UiaAPI.handle
+            return win32gui.GetWindowRect(hwnd)
+        except Exception:
+            try:
+                r = self._wx.UiaAPI.BoundingRectangle
+                return (r.left, r.top, r.right, r.bottom)
+            except Exception:
+                return None
+
+    def _bezier_move_click(self, x: int, y: int, pyautogui) -> None:
+        """Move mouse along a cubic Bézier curve to (x, y) and click."""
+        start_x, start_y = pyautogui.position()
+        dx = x - start_x
+        dy = y - start_y
+        distance = math.hypot(dx, dy)
+        steps = max(10, int(distance / 5))
+
+        # Two random control points offset perpendicular to the line
+        perp_x, perp_y = -dy, dx
+        norm = math.hypot(perp_x, perp_y) or 1.0
+        perp_x, perp_y = perp_x / norm, perp_y / norm
+
+        offset1 = random.gauss(0, 30)
+        offset2 = random.gauss(0, 30)
+        cp1_x = start_x + dx * 0.33 + perp_x * offset1
+        cp1_y = start_y + dy * 0.33 + perp_y * offset1
+        cp2_x = start_x + dx * 0.66 + perp_x * offset2
+        cp2_y = start_y + dy * 0.66 + perp_y * offset2
+
+        for i in range(1, steps + 1):
+            t = i / steps
+            inv = 1 - t
+            # Cubic Bézier: B(t) = (1-t)^3*P0 + 3(1-t)^2*t*P1 + 3(1-t)*t^2*P2 + t^3*P3
+            bx = inv**3 * start_x + 3 * inv**2 * t * cp1_x + 3 * inv * t**2 * cp2_x + t**3 * x
+            by = inv**3 * start_y + 3 * inv**2 * t * cp1_y + 3 * inv * t**2 * cp2_y + t**3 * y
+            pyautogui.moveTo(int(bx), int(by), _pause=False)
+            time.sleep(random.uniform(0.003, 0.012))
+
+        pyautogui.click(x, y)
+
+    @staticmethod
+    def _type_characters(text: str, pyautogui) -> None:
+        """Type text character by character with human-like delays."""
+        for char in text:
+            pyautogui.write(char)
+            # Variable delay: mostly fast, occasional pause
+            if random.random() < 0.05:
+                time.sleep(random.uniform(0.2, 0.5))
+            else:
+                time.sleep(random.uniform(0.03, 0.15))
+
     def send_file(self, chat_name: str, file_path: str) -> bool:
         """Send a file to a chat."""
         try:
@@ -180,14 +347,6 @@ class WeChatSession:
         except Exception as e:
             logger.error("Failed to send file to %s: %s", chat_name, e)
             return False
-
-    def scroll_up(self) -> None:
-        """Scroll the current chat window up to load older messages."""
-        try:
-            import pyautogui
-            pyautogui.scroll(10)
-        except Exception as e:
-            logger.error("Failed to scroll up: %s", e)
 
     def search_contact(self, name: str) -> list[str]:
         """
@@ -227,34 +386,3 @@ class WeChatSession:
             logger.error("Failed to open chat '%s': %s", chat_name, e)
             return False
 
-    def add_listen_chat(self, chat_name: str, callback: Callable) -> bool:
-        """Register event-driven listener for a chat using wxauto 3.9 AddListenChat."""
-        try:
-            self._wx.AddListenChat(who=chat_name, savepic=True)
-            self._listen_callbacks[chat_name] = callback
-            logger.info("Listening to chat: %s", chat_name)
-            return True
-        except Exception as e:
-            logger.error("Failed to add listen for '%s': %s", chat_name, e)
-            return False
-
-    def remove_listen_chat(self, chat_name: str) -> None:
-        """Remove listener for a chat."""
-        try:
-            self._wx.RemoveListenChat(who=chat_name)
-            self._listen_callbacks.pop(chat_name, None)
-            logger.info("Removed listener: %s", chat_name)
-        except Exception as e:
-            logger.error("Failed to remove listen for '%s': %s", chat_name, e)
-
-    def get_listen_messages(self) -> dict[str, list]:
-        """
-        Get new messages from all listened chats.
-        Returns {chat_name: [messages]} for chats that have new messages.
-        """
-        try:
-            msgs = self._wx.GetListenMessage()
-            return msgs if msgs else {}
-        except Exception as e:
-            logger.error("Failed to get listen messages: %s", e)
-            return {}

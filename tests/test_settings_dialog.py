@@ -99,6 +99,26 @@ class _QDialogButtonBox(_Widget):
         self.rejected = _Signal()
 
 
+class _QCheckBox(_Widget):
+    def __init__(self, text=""):
+        self._text = text
+        self._checked = False
+
+    def isChecked(self):
+        return self._checked
+
+    def setChecked(self, value):
+        self._checked = value
+
+
+class _QLabel(_Widget):
+    def __init__(self, text=""):
+        self._text = text
+
+    def setStyleSheet(self, style):
+        self._style = style
+
+
 class _QMessageBox:
     critical_calls = []
 
@@ -109,10 +129,12 @@ class _QMessageBox:
 
 def _install_qtwidgets_stub():
     qtwidgets = ModuleType("PyQt6.QtWidgets")
+    qtwidgets.QCheckBox = _QCheckBox
     qtwidgets.QDialog = _QDialog
     qtwidgets.QDialogButtonBox = _QDialogButtonBox
     qtwidgets.QDoubleSpinBox = _QDoubleSpinBox
     qtwidgets.QFormLayout = _QFormLayout
+    qtwidgets.QLabel = _QLabel
     qtwidgets.QLineEdit = _QLineEdit
     qtwidgets.QMessageBox = _QMessageBox
     qtwidgets.QSpinBox = _QSpinBox
@@ -135,8 +157,6 @@ def test_settings_dialog_uses_current_config_fields(tmp_path):
         orchestrator_url="http://example.test",
         orchestrator_ws_url="ws://example.test/ws/agent",
         agent_token="token-1",
-        poll_interval=1.5,
-        scroll_delay_ms=900,
         max_history_days=10,
         wal_poll_interval_ms=250,
     )
@@ -147,18 +167,24 @@ def test_settings_dialog_uses_current_config_fields(tmp_path):
         dialog.orchestrator_url.setText("http://changed.test")
         dialog.orchestrator_ws_url.setText("ws://changed.test/ws/agent")
         dialog.agent_token.setText("token-2")
-        dialog.poll_interval.setValue(2.0)
-        dialog.scroll_delay.setValue(700)
         dialog.max_history_days.setValue(45)
         dialog.wal_poll_interval.setValue(125)
+        dialog.human_simulation_enabled.setChecked(True)
+        dialog.rate_limit_hourly_max.setValue(80)
+        dialog.rate_limit_daily_max.setValue(200)
+        dialog.min_send_interval.setValue(5.0)
+        dialog.behavior_profile_path.setText("/tmp/profile.json")
         dialog._save()
 
     assert dialog.accepted is True
     assert cfg.orchestrator_url == "http://changed.test"
     assert cfg.orchestrator_ws_url == "ws://changed.test/ws/agent"
     assert cfg.agent_token == "token-2"
-    assert cfg.poll_interval == 2.0
-    assert cfg.scroll_delay_ms == 700
     assert cfg.max_history_days == 45
     assert cfg.wal_poll_interval_ms == 125
+    assert cfg.human_simulation_enabled is True
+    assert cfg.rate_limit_hourly_max == 80
+    assert cfg.rate_limit_daily_max == 200
+    assert cfg.min_send_interval == 5.0
+    assert cfg.behavior_profile_path == "/tmp/profile.json"
     assert config_file.exists()

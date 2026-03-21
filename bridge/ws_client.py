@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from queue import Queue
 from typing import Optional
 
@@ -10,6 +11,9 @@ from websockets.exceptions import ConnectionClosed
 from wechat.commander import CommandDispatcher
 
 logger = logging.getLogger(__name__)
+
+# Heartbeat interval in seconds
+HEARTBEAT_INTERVAL = 30
 
 
 class WebSocketBridge:
@@ -37,6 +41,7 @@ class WebSocketBridge:
         self._running = False
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ingest_queue: Optional[asyncio.Queue] = None
+        self._agent_status: dict = {}  # updated by SenderWorker via report_status()
 
     def forward_message(
         self,
@@ -72,6 +77,20 @@ class WebSocketBridge:
         """Check if WebSocket is connected."""
         return self._ws is not None and self._ws.open
 
+    def report_status(self, status: dict) -> None:
+        """Thread-safe: update agent status for the next heartbeat.
+
+        Expected keys:
+            state: str          — "active", "break", "inactive", "rate_limited", "sending", "idle"
+            queue_size: int     — pending messages in send queue
+            hourly_sent: int    — messages sent in last hour
+            daily_sent: int     — messages sent today
+            last_send_ts: float — timestamp of last successful send
+            uptime: float       — seconds since worker started
+            error: str          — last error message (empty if none)
+        """
+        self._agent_status = status
+
     async def run(self):
         """Main loop: connect, communicate, reconnect on failure."""
         self._running = True
@@ -93,10 +112,11 @@ class WebSocketBridge:
                     }))
                     logger.info("Registered as %s", self.agent_id)
 
-                    # Run read and write pumps concurrently
+                    # Run read, write, and heartbeat pumps concurrently
                     await asyncio.gather(
                         self._read_pump(ws),
                         self._write_pump(ws),
+                        self._heartbeat_pump(ws),
                     )
             except (ConnectionClosed, ConnectionRefusedError, OSError) as e:
                 logger.warning("WebSocket disconnected: %s, reconnecting in %.1fs", e, backoff)
@@ -156,6 +176,26 @@ class WebSocketBridge:
                 continue
             except ConnectionClosed:
                 break
+
+    async def _heartbeat_pump(self, ws):
+        """Send periodic heartbeat with agent status to orchestrator."""
+        while self._running:
+            try:
+                heartbeat = {
+                    "type": "heartbeat",
+                    "data": {
+                        "agent_id": self.agent_id,
+                        "timestamp": time.time(),
+                        **self._agent_status,
+                    },
+                }
+                await ws.send(json.dumps(heartbeat))
+                logger.debug("Heartbeat sent: state=%s", self._agent_status.get("state", "unknown"))
+            except ConnectionClosed:
+                break
+            except Exception as e:
+                logger.debug("Heartbeat send failed: %s", e)
+            await asyncio.sleep(HEARTBEAT_INTERVAL)
 
     def stop(self):
         """Signal the bridge to stop."""

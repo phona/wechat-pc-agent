@@ -7,7 +7,6 @@ from PyQt6.QtCore import Qt, QTimer
 
 from config import AppConfig
 from wechat.session import WeChatSession
-from wechat.reader import MessageReader
 from wechat.contacts import ContactCollector
 from wechat.commander import CommandDispatcher
 from bridge.ws_client import WebSocketBridge
@@ -19,8 +18,6 @@ from app.widgets.progress_panel import ProgressPanel
 from app.widgets.log_viewer import LogViewer
 from app.widgets.settings_dialog import SettingsDialog
 
-from app.workers.listener_worker import ListenerWorker
-from app.workers.history_worker import HistoryWorker
 from app.workers.sender_worker import SenderWorker
 from app.workers.contact_worker import ContactWorker
 from app.workers.ws_worker import WebSocketWorker
@@ -68,8 +65,6 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.log_viewer)
 
         # Workers (created on demand)
-        self._listener_worker: ListenerWorker | None = None
-        self._history_worker: HistoryWorker | None = None
         self._sender_worker: SenderWorker | None = None
         self._contact_worker: ContactWorker | None = None
         self._ws_worker: WebSocketWorker | None = None
@@ -77,8 +72,6 @@ class MainWindow(QMainWindow):
 
         # Connect button signals
         self.control_panel.btn_connect.clicked.connect(self._connect_wechat)
-        self.control_panel.btn_start.clicked.connect(self._start_listening)
-        self.control_panel.btn_collect_history.clicked.connect(self._collect_history)
         self.control_panel.btn_stop.clicked.connect(self._stop_all)
         self.control_panel.btn_settings.clicked.connect(self._open_settings)
         self.chat_selector.btn_refresh.clicked.connect(self._refresh_chats)
@@ -126,12 +119,43 @@ class MainWindow(QMainWindow):
 
     def _start_bridge(self) -> None:
         """Start the WebSocket bridge and sender worker."""
-        self._sender_worker = SenderWorker(self.session, self.send_queue)
-        self._sender_worker.message_sent.connect(lambda m: self.log_viewer.append(m, "SUCCESS"))
-        self._sender_worker.error_occurred.connect(lambda m: self.log_viewer.append(m, "ERROR"))
-        self._sender_worker.start()
+        rate_limiter = None
+        human_timing = None
+        ui_simulator = None
+        session_lifecycle = None
 
-        commander = CommandDispatcher(self.session, history_callback=self._collect_history_for)
+        if self.config.human_simulation_enabled:
+            from wechat.rate_limiter import RateLimiter
+            from wechat.human_timing import HumanTiming
+            from wechat.ui_simulator import UISimulator
+            from wechat.session_manager import SessionLifecycle
+
+            rate_limiter = RateLimiter(
+                hourly_pause=self.config.rate_limit_hourly_max,
+                daily_pause=self.config.rate_limit_daily_max,
+                min_interval=self.config.min_send_interval,
+            )
+            human_timing = HumanTiming(self.config.resolved_behavior_profile_path)
+            human_timing.load()
+
+            ui_simulator = UISimulator(
+                typo_enabled=self.config.typo_enabled,
+                typo_rate=self.config.typo_rate,
+                mouse_overshoot_enabled=self.config.mouse_overshoot_enabled,
+            )
+            self.session.ui_simulator = ui_simulator
+
+            if self.config.session_lifecycle_enabled:
+                session_lifecycle = SessionLifecycle(
+                    human_timing=human_timing,
+                    session_min_minutes=self.config.session_duration_min,
+                    session_max_minutes=self.config.session_duration_max,
+                    break_min_minutes=self.config.break_duration_min,
+                    break_max_minutes=self.config.break_duration_max,
+                )
+
+        # Create WebSocket bridge first so SenderWorker can report status
+        commander = CommandDispatcher(self.session)
         self.ws_bridge = WebSocketBridge(
             ws_url=self.config.orchestrator_ws_url,
             token=self.config.agent_token,
@@ -139,6 +163,27 @@ class MainWindow(QMainWindow):
             commander=commander,
             agent_id="agent-1",
         )
+
+        self._sender_worker = SenderWorker(
+            self.session,
+            self.send_queue,
+            rate_limiter=rate_limiter,
+            human_timing=human_timing,
+            human_simulation_enabled=self.config.human_simulation_enabled,
+            ui_simulator=ui_simulator if self.config.human_simulation_enabled else None,
+            session_lifecycle=session_lifecycle,
+            ws_bridge=self.ws_bridge,
+        )
+        self._sender_worker.message_sent.connect(lambda m: self.log_viewer.append(m, "SUCCESS"))
+        self._sender_worker.error_occurred.connect(lambda m: self.log_viewer.append(m, "ERROR"))
+        if self.config.human_simulation_enabled:
+            self._sender_worker.rate_limited.connect(lambda m: self.log_viewer.append(m, "WARN"))
+            self._sender_worker.humanized_delay.connect(
+                lambda d: self.log_viewer.append(f"Human delay: {d:.1f}s", "INFO")
+            )
+            self._sender_worker.idle_action.connect(lambda m: self.log_viewer.append(m, "INFO"))
+        self._sender_worker.start()
+
         self._ws_worker = WebSocketWorker(self.ws_bridge)
         self._ws_worker.log_message.connect(lambda m: self.log_viewer.append(m, "INFO"))
         self._ws_worker.error_occurred.connect(lambda m: self.log_viewer.append(m, "ERROR"))
@@ -172,72 +217,8 @@ class MainWindow(QMainWindow):
         self._db_worker.error_occurred.connect(lambda m: self.log_viewer.append(m, "ERROR"))
         self._db_worker.start()
 
-    def _start_listening(self) -> None:
-        selected = self.chat_selector.get_selected()
-        if not selected:
-            QMessageBox.warning(self, "No Chats", "Please select at least one chat to monitor.")
-            return
-
-        if not self.ws_bridge:
-            QMessageBox.warning(self, "Not Connected", "WebSocket bridge not started.")
-            return
-
-        self._listener_worker = ListenerWorker(self.session, self.ws_bridge, self.config.poll_interval)
-        self._listener_worker.set_chats(selected)
-        self._listener_worker.message_received.connect(lambda m: self.log_viewer.append(m, "INFO"))
-        self._listener_worker.error_occurred.connect(lambda m: self.log_viewer.append(m, "ERROR"))
-        self._listener_worker.start()
-
-        self.control_panel.set_running(True)
-        self.log_viewer.append(f"Listening to {len(selected)} chat(s)", "SUCCESS")
-
-    def _collect_history(self) -> None:
-        selected = self.chat_selector.get_selected()
-        if not selected:
-            QMessageBox.warning(self, "No Chats", "Please select at least one chat.")
-            return
-
-        if not self.ws_bridge:
-            QMessageBox.warning(self, "Not Connected", "WebSocket bridge not started.")
-            return
-
-        reader = MessageReader(self.session, self.config.scroll_delay_ms)
-        self._history_worker = HistoryWorker(reader, self.ws_bridge, self.config.max_history_days, self.config.resolved_sync_state_path)
-        self._history_worker.set_chats(selected)
-        self._history_worker.progress_updated.connect(
-            lambda count, name: self.progress_panel.set_collecting(name, count)
-        )
-        self._history_worker.chat_completed.connect(
-            lambda name, count: self.progress_panel.set_chat_completed(name, count)
-        )
-        self._history_worker.all_completed.connect(
-            lambda: self.progress_panel.set_idle()
-        )
-        self._history_worker.all_completed.connect(
-            lambda: self.control_panel.set_running(False)
-        )
-        self._history_worker.log_message.connect(lambda m: self.log_viewer.append(m, "INFO"))
-        self._history_worker.error_occurred.connect(lambda m: self.log_viewer.append(m, "ERROR"))
-        self._history_worker.start()
-
-        self.control_panel.set_running(True)
-        self.log_viewer.append(f"Collecting history for {len(selected)} chat(s)", "INFO")
-
-    def _collect_history_for(self, chat_name: str, days: int = 30) -> None:
-        """Trigger history collection for a single chat (called by CommandDispatcher)."""
-        if not self.ws_bridge:
-            return
-        reader = MessageReader(self.session, self.config.scroll_delay_ms)
-        self._history_worker = HistoryWorker(reader, self.ws_bridge, days, self.config.resolved_sync_state_path)
-        self._history_worker.set_chats([chat_name])
-        self._history_worker.log_message.connect(lambda m: self.log_viewer.append(m, "INFO"))
-        self._history_worker.error_occurred.connect(lambda m: self.log_viewer.append(m, "ERROR"))
-        self._history_worker.all_completed.connect(lambda: self.control_panel.set_running(False))
-        self._history_worker.start()
-        self.log_viewer.append(f"History collection started for {chat_name} ({days} days)", "INFO")
-
     def _stop_all(self) -> None:
-        for worker in (self._listener_worker, self._history_worker, self._db_worker):
+        for worker in (self._sender_worker, self._ws_worker, self._db_worker):
             if worker and worker.isRunning():
                 worker.stop()
         self.control_panel.set_running(False)
@@ -262,8 +243,7 @@ class MainWindow(QMainWindow):
             self.status_panel.set_wechat_status(ready)
 
     def closeEvent(self, event) -> None:
-        for worker in (self._listener_worker, self._history_worker,
-                        self._sender_worker, self._ws_worker, self._db_worker):
+        for worker in (self._sender_worker, self._ws_worker, self._db_worker):
             if worker and worker.isRunning():
                 worker.stop()
                 worker.wait(3000)

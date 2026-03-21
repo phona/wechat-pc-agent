@@ -117,32 +117,6 @@ def test_get_session_list_error(session):
     assert session.get_session_list() == []
 
 
-def test_get_chat_messages_with_name(session):
-    mock_msg = MagicMock()
-    session._wx.GetAllMessage.return_value = [mock_msg]
-    result = session.get_chat_messages("GroupA")
-    session._wx.ChatWith.assert_called_once_with("GroupA")
-    assert result == [mock_msg]
-
-
-def test_get_chat_messages_without_name(session):
-    mock_msg = MagicMock()
-    session._wx.GetAllMessage.return_value = [mock_msg]
-    result = session.get_chat_messages()
-    session._wx.ChatWith.assert_not_called()
-    assert result == [mock_msg]
-
-
-def test_get_chat_messages_returns_empty_on_none(session):
-    session._wx.GetAllMessage.return_value = None
-    assert session.get_chat_messages() == []
-
-
-def test_get_chat_messages_error(session):
-    session._wx.ChatWith.side_effect = Exception("fail")
-    assert session.get_chat_messages("X") == []
-
-
 def test_send_text_success(session):
     assert session.send_text("GroupA", "hello") is True
     session._wx.SendMsg.assert_called_once_with("hello", "GroupA")
@@ -161,13 +135,6 @@ def test_send_file_success(session):
 def test_send_file_failure(session):
     session._wx.SendFiles.side_effect = Exception("fail")
     assert session.send_file("GroupA", "/tmp/file.pdf") is False
-
-
-def test_scroll_up(session):
-    with patch.dict("sys.modules", {"pyautogui": MagicMock()}) as modules:
-        session.scroll_up()
-        import sys
-        sys.modules["pyautogui"].scroll.assert_called_once_with(10)
 
 
 # --- search_contact ---
@@ -207,40 +174,88 @@ def test_open_chat_failure(session):
     assert session.open_chat("Bad") is False
 
 
-# --- add_listen_chat / remove_listen_chat ---
+# --- send_text_human ---
 
-def test_add_listen_chat(session):
-    result = session.add_listen_chat("GroupA", callback=None)
+def _make_pyautogui_mock():
+    mock = MagicMock()
+    mock.position.return_value = (100, 100)
+    return mock
+
+
+def _make_pyperclip_mock():
+    return MagicMock()
+
+
+def test_send_text_human_success(session):
+    pyautogui_mock = _make_pyautogui_mock()
+    pyperclip_mock = _make_pyperclip_mock()
+    # Mock _get_input_box_position to avoid win32gui dependency
+    with patch.dict("sys.modules", {"pyautogui": pyautogui_mock, "pyperclip": pyperclip_mock}):
+        with patch.object(session, "_get_input_box_position", return_value=(500, 700)):
+            result = session.send_text_human("GroupA", "hello world")
     assert result is True
-    session._wx.AddListenChat.assert_called_once_with(who="GroupA", savepic=True)
+    session._wx.ChatWith.assert_called_once_with("GroupA")
+    pyautogui_mock.press.assert_called()  # Enter key at minimum
 
 
-def test_add_listen_chat_failure(session):
-    session._wx.AddListenChat.side_effect = Exception("fail")
-    result = session.add_listen_chat("Bad", callback=None)
+def test_send_text_human_chinese_uses_clipboard(session):
+    pyautogui_mock = _make_pyautogui_mock()
+    pyperclip_mock = _make_pyperclip_mock()
+    with patch.dict("sys.modules", {"pyautogui": pyautogui_mock, "pyperclip": pyperclip_mock}):
+        with patch.object(session, "_get_input_box_position", return_value=(500, 700)):
+            result = session.send_text_human("GroupA", "你好世界")
+    assert result is True
+    pyperclip_mock.copy.assert_called_once_with("你好世界")
+    pyautogui_mock.hotkey.assert_called_with("ctrl", "v")
+
+
+def test_send_text_human_ascii_types_chars(session):
+    pyautogui_mock = _make_pyautogui_mock()
+    pyperclip_mock = _make_pyperclip_mock()
+    with patch.dict("sys.modules", {"pyautogui": pyautogui_mock, "pyperclip": pyperclip_mock}):
+        with patch.object(session, "_get_input_box_position", return_value=(500, 700)):
+            with patch("wechat.session.time"):  # speed up by mocking sleep
+                result = session.send_text_human("GroupA", "abc")
+    assert result is True
+    # Should have typed individual characters via write()
+    write_calls = [c for c in pyautogui_mock.write.call_args_list]
+    assert len(write_calls) >= 3  # at least a, b, c
+
+
+def test_send_text_human_falls_back_on_error(session):
+    pyautogui_mock = _make_pyautogui_mock()
+    pyperclip_mock = _make_pyperclip_mock()
+    session._wx.ChatWith.side_effect = Exception("window gone")
+    session._wx.SendMsg.side_effect = Exception("window gone")
+    with patch.dict("sys.modules", {"pyautogui": pyautogui_mock, "pyperclip": pyperclip_mock}):
+        with patch.object(session, "_get_input_box_position", return_value=(500, 700)):
+            result = session.send_text_human("GroupA", "test")
+    # Falls back to send_text, which also fails because SendMsg raises
     assert result is False
 
 
-def test_remove_listen_chat(session):
-    session.remove_listen_chat("GroupA")
-    session._wx.RemoveListenChat.assert_called_once_with(who="GroupA")
+def test_send_text_human_falls_back_without_pyautogui(session):
+    """When pyautogui is not available, falls back to send_text."""
+    real_import = __import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "pyautogui":
+            raise ImportError("no pyautogui")
+        return real_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=fake_import):
+        result = session.send_text_human("GroupA", "test")
+    assert result is True
+    session._wx.SendMsg.assert_called_once_with("test", "GroupA")
 
 
-# --- get_listen_messages ---
-
-def test_get_listen_messages(session):
-    mock_msg = MagicMock()
-    session._wx.GetListenMessage.return_value = {"GroupA": [mock_msg]}
-    result = session.get_listen_messages()
-    assert "GroupA" in result
-    assert result["GroupA"] == [mock_msg]
-
-
-def test_get_listen_messages_empty(session):
-    session._wx.GetListenMessage.return_value = {}
-    assert session.get_listen_messages() == {}
+def test_bezier_move_produces_multiple_moves(session):
+    pyautogui_mock = _make_pyautogui_mock()
+    with patch("wechat.session.time"):
+        session._bezier_move_click(500, 500, pyautogui_mock)
+    # Should have called moveTo many times (curved path)
+    assert pyautogui_mock.moveTo.call_count >= 10
+    # Should end with a click
+    pyautogui_mock.click.assert_called_once_with(500, 500)
 
 
-def test_get_listen_messages_error(session):
-    session._wx.GetListenMessage.side_effect = Exception("fail")
-    assert session.get_listen_messages() == {}

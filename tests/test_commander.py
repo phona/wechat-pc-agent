@@ -75,25 +75,6 @@ def test_list_contacts(commander, session):
     assert result["data"]["friends"] == ["Alice"]
 
 
-def test_collect_history_with_callback(session):
-    callback = MagicMock()
-    commander = CommandDispatcher(session, history_callback=callback)
-    result = commander.dispatch("collect_history", {"name": "GroupA", "days": 7})
-    assert result["status"] == "ok"
-    callback.assert_called_once_with("GroupA", 7)
-
-
-def test_collect_history_no_callback(commander):
-    result = commander.dispatch("collect_history", {"name": "GroupA"})
-    assert result["status"] == "error"
-    assert "not available" in result["error"]
-
-
-def test_collect_history_missing_name(commander):
-    result = commander.dispatch("collect_history", {})
-    assert result["status"] == "error"
-
-
 def test_dispatch_catches_exceptions(session):
     """When session.send_text catches the error, dispatch returns error status."""
     session._wx.SendMsg.side_effect = RuntimeError("boom")
