@@ -18,11 +18,11 @@ def test_connect_success():
     s.last_connect_error = "old error"
     with patch("wechat.session.sys.platform", "win32"):
         with patch.object(s, "_probe_admin_status"), patch.object(s, "_probe_wechat_process"):
-            with patch.dict("sys.modules", {"wxauto": MagicMock(WeChat=MagicMock(return_value=mock_wx))}):
+            with patch.dict("sys.modules", {"wxauto4": MagicMock(WeChat=MagicMock(return_value=mock_wx))}):
                 assert s.connect() is True
                 assert s._wx is mock_wx
                 assert s.last_connect_error == ""
-                assert "wxauto.WeChat() attached successfully" in s.last_connect_diagnostics
+                assert "WeChat() attached successfully" in s.last_connect_diagnostics
 
 
 def test_connect_failure():
@@ -31,11 +31,11 @@ def test_connect_failure():
         with patch.object(s, "_probe_admin_status"), patch.object(
             s, "_probe_wechat_process", side_effect=lambda: setattr(s, "_last_process_probe", False)
         ):
-            with patch.dict("sys.modules", {"wxauto": MagicMock(WeChat=MagicMock(side_effect=Exception("no window")))}):
+            with patch.dict("sys.modules", {"wxauto4": MagicMock(WeChat=MagicMock(side_effect=Exception("no window")))}):
                 assert s.connect() is False
                 assert s._wx is None
                 assert s.last_connect_error == "no window"
-                assert "wxauto.WeChat() raised Exception: no window" in s.last_connect_diagnostics
+                assert "WeChat() raised Exception: no window" in s.last_connect_diagnostics
                 assert any("Start desktop WeChat" in line for line in s.last_connect_diagnostics)
 
 
@@ -44,7 +44,7 @@ def test_connect_import_failure():
     real_import = __import__
 
     def fake_import(name, *args, **kwargs):
-        if name == "wxauto":
+        if name in ("wxauto4", "wxauto"):
             raise ImportError("missing wxauto")
         return real_import(name, *args, **kwargs)
 
@@ -54,7 +54,7 @@ def test_connect_import_failure():
                 assert s.connect() is False
                 assert s._wx is None
                 assert s.last_connect_error == "wxauto import failed: missing wxauto"
-                assert any("Verify wxauto is installed" in line for line in s.last_connect_diagnostics)
+                assert any("wxauto4" in line or "wxauto" in line for line in s.last_connect_diagnostics)
 
 
 def test_connect_import_failure_missing_pil_hint():
@@ -62,7 +62,7 @@ def test_connect_import_failure_missing_pil_hint():
     real_import = __import__
 
     def fake_import(name, *args, **kwargs):
-        if name == "wxauto":
+        if name in ("wxauto4", "wxauto"):
             raise ImportError("No module named 'PIL'")
         return real_import(name, *args, **kwargs)
 

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "WeChat PC automation agent with PyQt6 GUI"
 requires-python = ">=3.10"
 dependencies = [
-    "wxauto>=3.9.0",
+    "wxauto4>=0.1.0",
     "PyQt6>=6.6.0",
     "pyautogui>=0.9.54",
     "Pillow>=10.0.0",

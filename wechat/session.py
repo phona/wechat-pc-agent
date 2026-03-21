@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class WeChatSession:
-    """Wraps wxauto.WeChat() with login detection and health checks."""
+    """Wraps wxauto4/wxauto WeChat() with login detection and health checks."""
 
     def __init__(self):
         self._wx = None
@@ -32,26 +32,31 @@ class WeChatSession:
         self._probe_wechat_process()
 
         try:
-            import wxauto
-            self._record_wxauto_details(wxauto)
-            WeChat = wxauto.WeChat
+            try:
+                import wxauto4 as _wxmod
+                self._record_connect_diag("Using wxauto4 (WeChat 4.x)")
+            except ImportError:
+                import wxauto as _wxmod
+                self._record_connect_diag("Using wxauto (WeChat 3.x)")
+            self._record_wxauto_details(_wxmod)
+            WeChat = _wxmod.WeChat
         except Exception as e:
             self.last_connect_error = f"wxauto import failed: {e}"
             self._record_connect_diag(self.last_connect_error)
             self._append_connect_hints(import_failed=True)
-            logger.exception("Failed to import wxauto while connecting to WeChat")
+            logger.exception("Failed to import wxauto/wxauto4 while connecting to WeChat")
             return False
 
         try:
             self._wx = WeChat()
-            self._record_connect_diag("wxauto.WeChat() attached successfully")
+            self._record_connect_diag("WeChat() attached successfully")
             logger.info("Connected to WeChat PC window")
             return True
         except Exception as e:
             self._wx = None
             self.last_connect_error = str(e) or e.__class__.__name__
             self._record_connect_diag(
-                f"wxauto.WeChat() raised {e.__class__.__name__}: {self.last_connect_error}"
+                f"WeChat() raised {e.__class__.__name__}: {self.last_connect_error}"
             )
             self._append_connect_hints()
             logger.exception("Failed to connect to WeChat")
@@ -83,24 +88,74 @@ class WeChatSession:
     def _probe_wechat_process(self) -> None:
         if sys.platform != "win32":
             return
-        try:
-            result = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq WeChat.exe", "/FO", "CSV", "/NH"],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=5,
-            )
-        except Exception as e:
-            self._record_connect_diag(f"WeChat process probe failed: {e}")
-            return
 
-        stdout = (result.stdout or "").strip()
-        self._last_process_probe = "WeChat.exe" in stdout
-        if self._last_process_probe:
-            self._record_connect_diag("WeChat.exe process detected")
+        # Check multiple possible process names (WeChat renamed to Weixin in some versions)
+        process_names = ["WeChat.exe", "Weixin.exe"]
+        found = []
+        for proc_name in process_names:
+            try:
+                result = subprocess.run(
+                    ["tasklist", "/FI", f"IMAGENAME eq {proc_name}", "/FO", "CSV", "/NH"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=5,
+                )
+                stdout = (result.stdout or "").strip()
+                if proc_name.lower() in stdout.lower():
+                    found.append(proc_name)
+            except Exception as e:
+                self._record_connect_diag(f"Process probe for {proc_name} failed: {e}")
+
+        self._last_process_probe = len(found) > 0
+        if found:
+            self._record_connect_diag(f"Detected processes: {', '.join(found)}")
         else:
-            self._record_connect_diag("WeChat.exe process not detected")
+            self._record_connect_diag("No WeChat/Weixin process detected")
+
+        # Try to enumerate WeChat-related windows for extra diagnostics
+        self._probe_wechat_windows()
+
+    def _probe_wechat_windows(self) -> None:
+        """Enumerate top-level windows to find WeChat-related ones."""
+        try:
+            import ctypes
+            import ctypes.wintypes
+
+            EnumWindows = ctypes.windll.user32.EnumWindows
+            GetWindowTextW = ctypes.windll.user32.GetWindowTextW
+            GetClassNameW = ctypes.windll.user32.GetClassNameW  # noqa: N806
+            IsWindowVisible = ctypes.windll.user32.IsWindowVisible
+
+            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+
+            wechat_windows: list[str] = []
+
+            def enum_callback(hwnd, _lparam):
+                if not IsWindowVisible(hwnd):
+                    return True
+                title_buf = ctypes.create_unicode_buffer(256)
+                class_buf = ctypes.create_unicode_buffer(256)
+                GetWindowTextW(hwnd, title_buf, 256)
+                GetClassNameW(hwnd, class_buf, 256)
+                title = title_buf.value
+                cls = class_buf.value
+                # Look for WeChat/Weixin related windows
+                for keyword in ("WeChat", "Weixin", "微信", "WeChatMainWndForPC", "WeChatLoginWndForPC"):
+                    if keyword.lower() in title.lower() or keyword.lower() in cls.lower():
+                        wechat_windows.append(f"hwnd={hwnd} title='{title}' class='{cls}'")
+                        break
+                return True
+
+            EnumWindows(WNDENUMPROC(enum_callback), 0)
+
+            if wechat_windows:
+                for w in wechat_windows:
+                    self._record_connect_diag(f"Found window: {w}")
+            else:
+                self._record_connect_diag("No WeChat-related windows found")
+        except Exception as e:
+            self._record_connect_diag(f"Window enumeration failed: {e}")
 
     def _append_connect_hints(self, import_failed: bool = False) -> None:
         for hint in self._build_connect_hints(import_failed):
@@ -114,21 +169,23 @@ class WeChatSession:
         if import_failed:
             if "No module named 'PIL'" in self.last_connect_error:
                 hints.append("This build is missing Pillow/PIL; rebuild the Windows package with Pillow included.")
-            hints.append("Verify wxauto is installed in the same Python environment as this app.")
+            hints.append("Verify wxauto4 (or wxauto) is installed: pip install wxauto4")
             return hints
 
         if self._last_process_probe is False:
-            hints.append("Start desktop WeChat and log in before clicking Connect WeChat.")
+            hints.append("Start desktop WeChat (微信) and log in before clicking Connect WeChat.")
+            hints.append("If using a newer WeChat version, the process may be named Weixin.exe instead of WeChat.exe.")
         else:
             hints.append("Make sure WeChat is open to the main chat window, not just the login QR screen.")
         hints.append("Run WeChat and this agent at the same privilege level; admin/admin is the safest setup.")
         hints.append("Keep WeChat visible and not minimized during the initial attach.")
-        hints.append("If WeChat recently updated, wxauto may not match the current UI layout.")
+        hints.append("For WeChat 4.x, install wxauto4: pip install wxauto4")
+        hints.append("For WeChat 3.x, install wxauto: pip install wxauto")
         return hints
 
     @property
     def wx(self):
-        """Access the underlying wxauto.WeChat instance."""
+        """Access the underlying wxauto/wxauto4 WeChat instance."""
         if self._wx is None:
             raise RuntimeError("WeChat not connected")
         return self._wx

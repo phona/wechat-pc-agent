@@ -8,6 +8,7 @@ a = Analysis(
     datas=[],
     hiddenimports=[
         # WeChat automation + decryption (lazy-loaded, PyInstaller won't auto-detect)
+        'wxauto4',
         'wxauto',
         'wdecipher',
         'pyautogui',

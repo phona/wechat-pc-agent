@@ -37,15 +37,17 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM wxauto is documented for pip install, but PyPI availability has been inconsistent.
-REM Fall back to the official GitHub repository if the package cannot be resolved.
-%PYTHON% -m pip install "wxauto>=3.9.0"
+REM wxauto4 supports WeChat 4.x; fall back to wxauto for WeChat 3.x.
+%PYTHON% -m pip install "wxauto4>=0.1.0"
 if errorlevel 1 (
-    echo WARN: Failed to install wxauto from PyPI, retrying from GitHub...
-    %PYTHON% -m pip install git+https://github.com/cluic/wxauto.git
+    echo WARN: Failed to install wxauto4, falling back to wxauto for WeChat 3.x...
+    %PYTHON% -m pip install "wxauto>=3.9.0"
     if errorlevel 1 (
-        echo ERROR: Failed to install wxauto from PyPI and GitHub
-        exit /b 1
+        %PYTHON% -m pip install git+https://github.com/cluic/wxauto.git
+        if errorlevel 1 (
+            echo ERROR: Failed to install wxauto4 or wxauto
+            exit /b 1
+        )
     )
 )
 
