@@ -37,8 +37,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM wxauto4 supports WeChat 4.x; fall back to wxauto for WeChat 3.x.
-%PYTHON% -m pip install "wxauto4>=0.1.0"
+REM wxauto4 supports WeChat 4.x (not on PyPI, install from GitHub).
+%PYTHON% -m pip install git+https://github.com/moguangjian/wxauto-4.0.git
 if errorlevel 1 (
     echo WARN: Failed to install wxauto4, falling back to wxauto for WeChat 3.x...
     %PYTHON% -m pip install "wxauto>=3.9.0"

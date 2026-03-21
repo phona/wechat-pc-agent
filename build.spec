@@ -9,7 +9,14 @@ a = Analysis(
     hiddenimports=[
         # WeChat automation + decryption (lazy-loaded, PyInstaller won't auto-detect)
         'wxauto4',
+        'wxauto4.wx',
+        'wxauto4.uia',
+        'wxauto4.ui',
+        'wxauto4.msgs',
+        'wxauto4.utils',
         'wxauto',
+        'comtypes',
+        'psutil',
         'wdecipher',
         'pyautogui',
         'PIL',
