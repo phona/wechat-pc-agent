@@ -4,15 +4,14 @@ version = "0.1.0"
 description = "WeChat PC automation agent with PyQt6 GUI"
 requires-python = ">=3.10"
 dependencies = [
-    "wxauto4 @ git+https://github.com/moguangjian/wxauto-4.0.git",
     "PyQt6>=6.6.0",
     "pyautogui>=0.9.54",
     "Pillow>=10.0.0",
     "httpx>=0.27.0",
     "websockets>=12.0",
-    "wdecipher>=0.1.0",
     "pydantic>=2.6.0",
     "pyperclip>=1.8.0",
+    "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]

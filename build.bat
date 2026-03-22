@@ -31,24 +31,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
-%PYTHON% -m pip install pyinstaller pyautogui Pillow PyQt6 httpx websockets pydantic wdecipher
+%PYTHON% -m pip install pyinstaller pyautogui Pillow PyQt6 httpx websockets pydantic numpy pyperclip
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies
     exit /b 1
-)
-
-REM wxauto4 supports WeChat 4.x (not on PyPI, install from GitHub).
-%PYTHON% -m pip install git+https://github.com/moguangjian/wxauto-4.0.git
-if errorlevel 1 (
-    echo WARN: Failed to install wxauto4, falling back to wxauto for WeChat 3.x...
-    %PYTHON% -m pip install "wxauto>=3.9.0"
-    if errorlevel 1 (
-        %PYTHON% -m pip install git+https://github.com/cluic/wxauto.git
-        if errorlevel 1 (
-            echo ERROR: Failed to install wxauto4 or wxauto
-            exit /b 1
-        )
-    )
 )
 
 REM Build with PyInstaller

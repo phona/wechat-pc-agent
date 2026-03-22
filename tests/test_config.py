@@ -22,23 +22,27 @@ def test_defaults():
     assert cfg.agent_token == ""
     assert cfg.max_history_days == 30
     assert cfg.sync_state_path == ""
-    assert cfg.wechat_db_dir == ""
-    assert cfg.decrypted_db_dir == ""
-    assert cfg.wal_poll_interval_ms == 100
-    assert cfg.db_sync_timestamp == 0
+    assert cfg.vlm_api_url == ""
+    assert cfg.vlm_model == "Qwen/Qwen3-VL-8B-Instruct"
+    assert cfg.vlm_timeout == 30.0
+    assert cfg.pixel_diff_threshold == 0.02
+    assert cfg.pixel_diff_interval == 1.5
+    assert cfg.ocr_breaker_threshold == 5
+    assert cfg.ocr_breaker_cooldown == 300.0
+    assert cfg.vlm_breaker_threshold == 3
+    assert cfg.vlm_breaker_cooldown == 600.0
+    assert cfg.max_scroll_rounds == 3
 
 
 def test_resolved_paths_default_to_data_dir():
     cfg = AppConfig()
     # When empty, resolved paths use data_dir()
     assert cfg.resolved_sync_state_path.endswith("sync_state.json")
-    assert cfg.resolved_decrypted_db_dir.endswith("decrypted")
 
 
 def test_resolved_paths_use_explicit_values():
-    cfg = AppConfig(sync_state_path="/custom/sync.json", decrypted_db_dir="/custom/dec")
+    cfg = AppConfig(sync_state_path="/custom/sync.json")
     assert cfg.resolved_sync_state_path == "/custom/sync.json"
-    assert cfg.resolved_decrypted_db_dir == "/custom/dec"
 
 
 def test_save_and_load(tmp_config_dir):
@@ -86,8 +90,9 @@ def test_load_defaults_when_no_env(tmp_config_dir):
     """When no config file and no env vars, use defaults."""
     env_keys = [
         "ORCHESTRATOR_URL", "ORCHESTRATOR_WS_URL", "AGENT_TOKEN",
-        "MAX_HISTORY_DAYS", "SYNC_STATE_PATH", "WECHAT_DB_DIR",
-        "DECRYPTED_DB_DIR", "WAL_POLL_INTERVAL_MS", "DB_SYNC_TIMESTAMP",
+        "MAX_HISTORY_DAYS", "SYNC_STATE_PATH", "VLM_API_URL",
+        "VLM_MODEL", "VLM_TIMEOUT", "PIXEL_DIFF_THRESHOLD",
+        "PIXEL_DIFF_INTERVAL",
     ]
     clean_env = {k: v for k, v in os.environ.items() if k not in env_keys}
     with patch.dict(os.environ, clean_env, clear=True):

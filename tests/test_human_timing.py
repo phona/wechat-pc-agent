@@ -1,66 +1,11 @@
 """Tests for HumanTiming module."""
 
 import json
-import sqlite3
-from datetime import datetime
 from unittest.mock import patch, MagicMock
 
 import pytest
 
-from wechat.db_reader import DBReader
-from wechat.human_timing import HumanTiming
-
-
-@pytest.fixture
-def db_path(tmp_path):
-    """Create a test MSG database with realistic conversation patterns."""
-    path = str(tmp_path / "MSG_ALL.db")
-    conn = sqlite3.connect(path)
-    conn.execute("""
-        CREATE TABLE MSG (
-            localId INTEGER PRIMARY KEY,
-            MsgSvrID INT,
-            Type INT,
-            IsSender INT,
-            CreateTime INT,
-            StrTalker TEXT,
-            StrContent TEXT
-        )
-    """)
-    import time as _time
-    t = int(_time.time()) - 86400  # yesterday
-    rows = [
-        # Conversation with alice: incoming then reply with various delays
-        (1, 101, 1, 0, t, "alice", "Hey"),
-        (2, 102, 1, 1, t + 5, "alice", "Hi there"),         # 5s delay
-        (3, 103, 1, 0, t + 100, "alice", "How are you?"),
-        (4, 104, 1, 1, t + 108, "alice", "Good thanks!"),    # 8s delay
-        (5, 105, 1, 0, t + 200, "alice", "What's up?"),
-        (6, 106, 1, 1, t + 215, "alice", "Not much, just working on stuff"),  # 15s delay
-        # Conversation with bob
-        (7, 107, 1, 0, t + 300, "bob", "Hello"),
-        (8, 108, 1, 1, t + 310, "bob", "Hey bob"),           # 10s delay
-        (9, 109, 1, 0, t + 400, "bob", "Quick question"),
-        (10, 110, 1, 1, t + 403, "bob", "Sure"),             # 3s delay
-    ]
-    conn.executemany(
-        "INSERT INTO MSG (localId, MsgSvrID, Type, IsSender, CreateTime, StrTalker, StrContent) "
-        "VALUES (?,?,?,?,?,?,?)",
-        rows,
-    )
-    conn.commit()
-    conn.close()
-    return path
-
-
-def test_learn_from_db(db_path):
-    reader = DBReader(db_path)
-    ht = HumanTiming()
-    ht.learn(reader, months=6)
-    assert ht._profile["sample_count"] == 5
-    assert "reply_delay_mu" in ht._profile
-    assert "reply_delay_sigma" in ht._profile
-    assert ht._profile["typing_speed"] > 0
+from wechat.simulation.human_timing import HumanTiming
 
 
 def test_sample_reply_delay_range():
@@ -101,7 +46,7 @@ def test_is_active_hour_with_profile():
     hours[3] = 0.0   # inactive at 3am
     ht._profile = {"active_hours": hours}
 
-    with patch("wechat.human_timing.datetime") as mock_dt:
+    with patch("wechat.simulation.human_timing.datetime") as mock_dt:
         mock_dt.now.return_value = MagicMock(hour=10)
         assert ht.is_active_hour() is True
 
@@ -130,22 +75,3 @@ def test_profile_save_load(tmp_path):
 def test_load_missing_file():
     ht = HumanTiming()
     assert ht.load("/nonexistent/path.json") is False
-
-
-def test_learn_empty_db(tmp_path):
-    path = str(tmp_path / "empty.db")
-    conn = sqlite3.connect(path)
-    conn.execute("""
-        CREATE TABLE MSG (
-            localId INTEGER PRIMARY KEY, MsgSvrID INT, Type INT,
-            IsSender INT, CreateTime INT, StrTalker TEXT, StrContent TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-    reader = DBReader(path)
-    ht = HumanTiming()
-    ht.learn(reader, months=6)
-    # Should not crash, uses defaults
-    assert ht._profile == {}

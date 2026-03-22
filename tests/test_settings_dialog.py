@@ -85,7 +85,11 @@ class _QSpinBox(_Widget):
 
 
 class _QDoubleSpinBox(_QSpinBox):
-    pass
+    def setDecimals(self, decimals):
+        self._decimals = decimals
+
+    def setSingleStep(self, step):
+        self._single_step = step
 
 
 class _QDialogButtonBox(_Widget):
@@ -158,7 +162,7 @@ def test_settings_dialog_uses_current_config_fields(tmp_path):
         orchestrator_ws_url="ws://example.test/ws/agent",
         agent_token="token-1",
         max_history_days=10,
-        wal_poll_interval_ms=250,
+        vlm_api_url="http://vlm.test",
     )
     config_file = tmp_path / "config.json"
 
@@ -168,12 +172,21 @@ def test_settings_dialog_uses_current_config_fields(tmp_path):
         dialog.orchestrator_ws_url.setText("ws://changed.test/ws/agent")
         dialog.agent_token.setText("token-2")
         dialog.max_history_days.setValue(45)
-        dialog.wal_poll_interval.setValue(125)
+        dialog.vlm_api_url.setText("http://vlm-new.test")
+        dialog.vlm_model.setText("test-model")
+        dialog.vlm_timeout.setValue(60.0)
+        dialog.pixel_diff_threshold.setValue(0.05)
+        dialog.pixel_diff_interval.setValue(2.0)
         dialog.human_simulation_enabled.setChecked(True)
         dialog.rate_limit_hourly_max.setValue(80)
         dialog.rate_limit_daily_max.setValue(200)
         dialog.min_send_interval.setValue(5.0)
         dialog.behavior_profile_path.setText("/tmp/profile.json")
+        dialog.ocr_breaker_threshold.setValue(10)
+        dialog.ocr_breaker_cooldown.setValue(120.0)
+        dialog.vlm_breaker_threshold.setValue(5)
+        dialog.vlm_breaker_cooldown.setValue(900.0)
+        dialog.max_scroll_rounds.setValue(5)
         dialog._save()
 
     assert dialog.accepted is True
@@ -181,10 +194,19 @@ def test_settings_dialog_uses_current_config_fields(tmp_path):
     assert cfg.orchestrator_ws_url == "ws://changed.test/ws/agent"
     assert cfg.agent_token == "token-2"
     assert cfg.max_history_days == 45
-    assert cfg.wal_poll_interval_ms == 125
+    assert cfg.vlm_api_url == "http://vlm-new.test"
+    assert cfg.vlm_model == "test-model"
+    assert cfg.vlm_timeout == 60.0
+    assert cfg.pixel_diff_threshold == 0.05
+    assert cfg.pixel_diff_interval == 2.0
     assert cfg.human_simulation_enabled is True
     assert cfg.rate_limit_hourly_max == 80
     assert cfg.rate_limit_daily_max == 200
     assert cfg.min_send_interval == 5.0
     assert cfg.behavior_profile_path == "/tmp/profile.json"
+    assert cfg.ocr_breaker_threshold == 10
+    assert cfg.ocr_breaker_cooldown == 120.0
+    assert cfg.vlm_breaker_threshold == 5
+    assert cfg.vlm_breaker_cooldown == 900.0
+    assert cfg.max_scroll_rounds == 5
     assert config_file.exists()

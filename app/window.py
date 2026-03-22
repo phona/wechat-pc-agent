@@ -21,8 +21,8 @@ from app.widgets.settings_dialog import SettingsDialog
 from app.workers.sender_worker import SenderWorker
 from app.workers.contact_worker import ContactWorker
 from app.workers.ws_worker import WebSocketWorker
-from app.workers.db_worker import DBWorker
-from wechat.db_decrypt import DBDecryptor
+from app.workers.vision_worker import VisionWorker
+from wechat.ui_state import UIStateManager
 
 
 class MainWindow(QMainWindow):
@@ -36,6 +36,7 @@ class MainWindow(QMainWindow):
         self.session = WeChatSession()
         self.send_queue: Queue = Queue()
         self.ws_bridge: WebSocketBridge | None = None
+        self._state_mgr = UIStateManager()
 
         # Build UI
         central = QWidget()
@@ -68,7 +69,7 @@ class MainWindow(QMainWindow):
         self._sender_worker: SenderWorker | None = None
         self._contact_worker: ContactWorker | None = None
         self._ws_worker: WebSocketWorker | None = None
-        self._db_worker: DBWorker | None = None
+        self._vision_worker: VisionWorker | None = None
 
         # Connect button signals
         self.control_panel.btn_connect.clicked.connect(self._connect_wechat)
@@ -85,6 +86,35 @@ class MainWindow(QMainWindow):
 
     def _connect_wechat(self) -> None:
         self.log_viewer.append("Connecting to WeChat PC...", "INFO")
+
+        # Create Win32 window + three-layer vision components
+        from wechat.win32_utils import WeChatWindow
+        from wechat.vision import VLMClient, PaddleOCRClient, VisionPerception
+
+        window = WeChatWindow()
+        vlm = VLMClient(
+            api_url=self.config.vlm_api_url,
+            model=self.config.vlm_model,
+            timeout=self.config.vlm_timeout,
+        ) if self.config.vlm_api_url else None
+
+        ocr = PaddleOCRClient(
+            api_url=self.config.ocr_api_url,
+            api_key=self.config.ocr_api_key,
+            timeout=self.config.ocr_timeout,
+        ) if self.config.ocr_api_url else None
+
+        vision = VisionPerception(
+            window, vlm, ocr,
+            pixel_diff_threshold=self.config.pixel_diff_threshold,
+            ocr_breaker_threshold=self.config.ocr_breaker_threshold,
+            ocr_breaker_cooldown=self.config.ocr_breaker_cooldown,
+            vlm_breaker_threshold=self.config.vlm_breaker_threshold,
+            vlm_breaker_cooldown=self.config.vlm_breaker_cooldown,
+        ) if vlm else None
+
+        self.session.set_vision(window, vision)
+
         if self.session.connect():
             self.status_panel.set_wechat_status(True)
             self.control_panel.set_connected(True)
@@ -125,10 +155,7 @@ class MainWindow(QMainWindow):
         session_lifecycle = None
 
         if self.config.human_simulation_enabled:
-            from wechat.rate_limiter import RateLimiter
-            from wechat.human_timing import HumanTiming
-            from wechat.ui_simulator import UISimulator
-            from wechat.session_manager import SessionLifecycle
+            from wechat.simulation import RateLimiter, HumanTiming, UISimulator, SessionLifecycle
 
             rate_limiter = RateLimiter(
                 hourly_pause=self.config.rate_limit_hourly_max,
@@ -190,35 +217,37 @@ class MainWindow(QMainWindow):
         self._ws_worker.start()
         self.log_viewer.append(f"WebSocket bridge connecting to {self.config.orchestrator_ws_url}", "INFO")
 
-        # Start DB worker for real-time message detection via WeChat DB.
-        self._start_db_worker()
+        # Start vision worker for real-time message detection via VLM.
+        self._start_vision_worker()
 
-    def _start_db_worker(self) -> None:
-        """Start the DB decryption + WAL monitor worker."""
-        if not self.ws_bridge:
+    def _start_vision_worker(self) -> None:
+        """Start the vision-based message detection worker."""
+        if not self.ws_bridge or not self.session._vision:
+            self.log_viewer.append("Vision worker requires VLM — skipped", "WARN")
             return
-        decryptor = DBDecryptor(out_dir=self.config.resolved_decrypted_db_dir)
-        self._db_worker = DBWorker(
-            decryptor=decryptor,
+        self._vision_worker = VisionWorker(
+            vision=self.session._vision,
+            session=self.session,
             bridge=self.ws_bridge,
-            sync_timestamp=self.config.db_sync_timestamp,
-            wal_poll_interval_ms=self.config.wal_poll_interval_ms,
+            state_mgr=self._state_mgr,
+            poll_interval=self.config.pixel_diff_interval,
+            max_scroll_rounds=self.config.max_scroll_rounds,
         )
-        self._db_worker.new_messages.connect(
-            lambda n: self.log_viewer.append(f"DB: {n} new messages forwarded", "INFO")
+        self._vision_worker.new_messages.connect(
+            lambda msgs: self.log_viewer.append(
+                f"Vision: {len(msgs)} new messages detected", "INFO"
+            )
         )
-        self._db_worker.decrypt_complete.connect(
-            lambda p: self.log_viewer.append(f"DB decrypted: {p}", "SUCCESS")
+        self._vision_worker.change_detected.connect(
+            lambda: self.log_viewer.append("Pixel change detected", "INFO")
         )
-        self._db_worker.history_complete.connect(
-            lambda n: self.log_viewer.append(f"DB history scan: {n} messages total", "SUCCESS")
-        )
-        self._db_worker.log_message.connect(lambda m: self.log_viewer.append(m, "INFO"))
-        self._db_worker.error_occurred.connect(lambda m: self.log_viewer.append(m, "ERROR"))
-        self._db_worker.start()
+        self._vision_worker.log_message.connect(lambda m: self.log_viewer.append(m, "INFO"))
+        self._vision_worker.error_occurred.connect(lambda m: self.log_viewer.append(m, "ERROR"))
+        self._vision_worker.start()
+        self.log_viewer.append("Vision worker started", "SUCCESS")
 
     def _stop_all(self) -> None:
-        for worker in (self._sender_worker, self._ws_worker, self._db_worker):
+        for worker in (self._sender_worker, self._ws_worker, self._vision_worker):
             if worker and worker.isRunning():
                 worker.stop()
         self.control_panel.set_running(False)
@@ -238,12 +267,12 @@ class MainWindow(QMainWindow):
         if self.ws_bridge:
             self.status_panel.set_orchestrator_status(self.ws_bridge.health_check())
 
-        if self.session._wx is not None:
+        if self.session._window is not None:
             ready = self.session.is_ready()
             self.status_panel.set_wechat_status(ready)
 
     def closeEvent(self, event) -> None:
-        for worker in (self._sender_worker, self._ws_worker, self._db_worker):
+        for worker in (self._sender_worker, self._ws_worker, self._vision_worker):
             if worker and worker.isRunning():
                 worker.stop()
                 worker.wait(3000)

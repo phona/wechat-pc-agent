@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from wechat.rate_limiter import RateLimiter
+from wechat.simulation.rate_limiter import RateLimiter
 
 
 def test_can_send_when_empty():
@@ -24,7 +24,7 @@ def test_min_interval_enforced():
 def test_min_interval_elapsed():
     rl = RateLimiter(min_interval=1.0)
     t0 = 1000.0
-    with patch("wechat.rate_limiter.time") as mock_time:
+    with patch("wechat.simulation.rate_limiter.time") as mock_time:
         mock_time.time.return_value = t0
         rl.record_send()
         mock_time.time.return_value = t0 + 2.0
@@ -35,7 +35,7 @@ def test_min_interval_elapsed():
 def test_hourly_limit_blocks():
     rl = RateLimiter(hourly_pause=5, min_interval=0.0)
     t0 = 1000.0
-    with patch("wechat.rate_limiter.time") as mock_time:
+    with patch("wechat.simulation.rate_limiter.time") as mock_time:
         for i in range(5):
             mock_time.time.return_value = t0 + i
             rl.record_send()
@@ -48,7 +48,7 @@ def test_hourly_limit_blocks():
 def test_daily_limit_blocks():
     rl = RateLimiter(daily_pause=5, hourly_pause=1000, min_interval=0.0)
     t0 = 1000.0
-    with patch("wechat.rate_limiter.time") as mock_time:
+    with patch("wechat.simulation.rate_limiter.time") as mock_time:
         for i in range(5):
             mock_time.time.return_value = t0 + i
             rl.record_send()
@@ -61,7 +61,7 @@ def test_daily_limit_blocks():
 def test_rolling_window_prunes_old_entries():
     rl = RateLimiter(daily_pause=5, hourly_pause=1000, min_interval=0.0)
     t0 = 1000.0
-    with patch("wechat.rate_limiter.time") as mock_time:
+    with patch("wechat.simulation.rate_limiter.time") as mock_time:
         # Add 4 sends at t0
         for i in range(4):
             mock_time.time.return_value = t0 + i
@@ -75,7 +75,7 @@ def test_rolling_window_prunes_old_entries():
 def test_cooldown_for_min_interval():
     rl = RateLimiter(min_interval=5.0)
     t0 = 1000.0
-    with patch("wechat.rate_limiter.time") as mock_time:
+    with patch("wechat.simulation.rate_limiter.time") as mock_time:
         mock_time.time.return_value = t0
         rl.record_send()
         mock_time.time.return_value = t0 + 2.0
@@ -86,7 +86,7 @@ def test_cooldown_for_min_interval():
 def test_cooldown_for_hourly_pause():
     rl = RateLimiter(hourly_pause=2, min_interval=0.0)
     t0 = 1000.0
-    with patch("wechat.rate_limiter.time") as mock_time:
+    with patch("wechat.simulation.rate_limiter.time") as mock_time:
         for i in range(2):
             mock_time.time.return_value = t0 + i
             rl.record_send()
@@ -99,7 +99,7 @@ def test_cooldown_for_hourly_pause():
 def test_cooldown_for_daily_pause():
     rl = RateLimiter(daily_pause=2, hourly_pause=1000, min_interval=0.0)
     t0 = 1000.0
-    with patch("wechat.rate_limiter.time") as mock_time:
+    with patch("wechat.simulation.rate_limiter.time") as mock_time:
         for i in range(2):
             mock_time.time.return_value = t0 + i
             rl.record_send()
@@ -122,7 +122,7 @@ def test_get_stats():
 def test_hourly_warn_logs(caplog):
     rl = RateLimiter(hourly_warn=2, hourly_pause=100, min_interval=0.0)
     t0 = 1000.0
-    with patch("wechat.rate_limiter.time") as mock_time:
+    with patch("wechat.simulation.rate_limiter.time") as mock_time:
         for i in range(3):
             mock_time.time.return_value = t0 + i
             rl.record_send()

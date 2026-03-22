@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wechat.session_manager import (
+from wechat.simulation.session_manager import (
     SessionLifecycle,
     STATE_ACTIVE,
     STATE_BREAK,

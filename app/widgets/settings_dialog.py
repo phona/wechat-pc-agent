@@ -26,16 +26,101 @@ class SettingsDialog(QDialog):
         self.max_history_days.setValue(config.max_history_days)
         self.max_history_days.setSuffix(" days")
 
-        self.wal_poll_interval = QSpinBox()
-        self.wal_poll_interval.setRange(10, 5000)
-        self.wal_poll_interval.setValue(config.wal_poll_interval_ms)
-        self.wal_poll_interval.setSuffix(" ms")
-
         layout.addRow("Orchestrator URL:", self.orchestrator_url)
         layout.addRow("WebSocket URL:", self.orchestrator_ws_url)
         layout.addRow("API Token:", self.agent_token)
         layout.addRow("Max History:", self.max_history_days)
-        layout.addRow("WAL Poll Interval:", self.wal_poll_interval)
+
+        # --- VLM Vision ---
+        vlm_sep = QLabel("")
+        vlm_sep.setStyleSheet("border-top: 1px solid #ccc; margin: 8px 0;")
+        layout.addRow(vlm_sep)
+
+        self.vlm_api_url = QLineEdit(config.vlm_api_url)
+        self.vlm_model = QLineEdit(config.vlm_model)
+
+        self.vlm_timeout = QDoubleSpinBox()
+        self.vlm_timeout.setRange(5.0, 120.0)
+        self.vlm_timeout.setValue(config.vlm_timeout)
+        self.vlm_timeout.setSuffix(" s")
+
+        self.pixel_diff_threshold = QDoubleSpinBox()
+        self.pixel_diff_threshold.setRange(0.005, 0.5)
+        self.pixel_diff_threshold.setDecimals(3)
+        self.pixel_diff_threshold.setSingleStep(0.005)
+        self.pixel_diff_threshold.setValue(config.pixel_diff_threshold)
+
+        self.pixel_diff_interval = QDoubleSpinBox()
+        self.pixel_diff_interval.setRange(0.5, 10.0)
+        self.pixel_diff_interval.setValue(config.pixel_diff_interval)
+        self.pixel_diff_interval.setSuffix(" s")
+
+        layout.addRow("VLM API URL:", self.vlm_api_url)
+        layout.addRow("VLM Model:", self.vlm_model)
+        layout.addRow("VLM Timeout:", self.vlm_timeout)
+        layout.addRow("Pixel Diff Threshold:", self.pixel_diff_threshold)
+        layout.addRow("Pixel Diff Interval:", self.pixel_diff_interval)
+
+        # --- PaddleOCR ---
+        ocr_sep = QLabel("")
+        ocr_sep.setStyleSheet("border-top: 1px solid #ccc; margin: 8px 0;")
+        layout.addRow(ocr_sep)
+
+        self.ocr_api_url = QLineEdit(config.ocr_api_url)
+        self.ocr_api_key = QLineEdit(config.ocr_api_key)
+        self.ocr_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+
+        self.ocr_timeout = QDoubleSpinBox()
+        self.ocr_timeout.setRange(1.0, 60.0)
+        self.ocr_timeout.setValue(config.ocr_timeout)
+        self.ocr_timeout.setSuffix(" s")
+
+        self.ocr_min_confidence = QDoubleSpinBox()
+        self.ocr_min_confidence.setRange(0.1, 1.0)
+        self.ocr_min_confidence.setDecimals(2)
+        self.ocr_min_confidence.setSingleStep(0.05)
+        self.ocr_min_confidence.setValue(config.ocr_min_confidence)
+
+        layout.addRow("OCR API URL:", self.ocr_api_url)
+        layout.addRow("OCR API Key:", self.ocr_api_key)
+        layout.addRow("OCR Timeout:", self.ocr_timeout)
+        layout.addRow("OCR Min Confidence:", self.ocr_min_confidence)
+
+        # --- Resilience / Circuit Breaker ---
+        res_sep = QLabel("")
+        res_sep.setStyleSheet("border-top: 1px solid #ccc; margin: 8px 0;")
+        layout.addRow(res_sep)
+
+        self.ocr_breaker_threshold = QSpinBox()
+        self.ocr_breaker_threshold.setRange(1, 50)
+        self.ocr_breaker_threshold.setValue(config.ocr_breaker_threshold)
+        self.ocr_breaker_threshold.setSuffix(" failures")
+
+        self.ocr_breaker_cooldown = QDoubleSpinBox()
+        self.ocr_breaker_cooldown.setRange(10.0, 3600.0)
+        self.ocr_breaker_cooldown.setValue(config.ocr_breaker_cooldown)
+        self.ocr_breaker_cooldown.setSuffix(" s")
+
+        self.vlm_breaker_threshold = QSpinBox()
+        self.vlm_breaker_threshold.setRange(1, 50)
+        self.vlm_breaker_threshold.setValue(config.vlm_breaker_threshold)
+        self.vlm_breaker_threshold.setSuffix(" failures")
+
+        self.vlm_breaker_cooldown = QDoubleSpinBox()
+        self.vlm_breaker_cooldown.setRange(10.0, 7200.0)
+        self.vlm_breaker_cooldown.setValue(config.vlm_breaker_cooldown)
+        self.vlm_breaker_cooldown.setSuffix(" s")
+
+        self.max_scroll_rounds = QSpinBox()
+        self.max_scroll_rounds.setRange(0, 10)
+        self.max_scroll_rounds.setValue(config.max_scroll_rounds)
+
+        layout.addRow("Resilience:", QLabel(""))
+        layout.addRow("OCR Breaker Threshold:", self.ocr_breaker_threshold)
+        layout.addRow("OCR Breaker Cooldown:", self.ocr_breaker_cooldown)
+        layout.addRow("VLM Breaker Threshold:", self.vlm_breaker_threshold)
+        layout.addRow("VLM Breaker Cooldown:", self.vlm_breaker_cooldown)
+        layout.addRow("Max Scroll Rounds:", self.max_scroll_rounds)
 
         # --- Human Simulation ---
         separator = QLabel("")
@@ -132,7 +217,20 @@ class SettingsDialog(QDialog):
             self.config.orchestrator_ws_url = self.orchestrator_ws_url.text().strip()
             self.config.agent_token = self.agent_token.text()
             self.config.max_history_days = self.max_history_days.value()
-            self.config.wal_poll_interval_ms = self.wal_poll_interval.value()
+            self.config.vlm_api_url = self.vlm_api_url.text().strip()
+            self.config.vlm_model = self.vlm_model.text().strip()
+            self.config.vlm_timeout = self.vlm_timeout.value()
+            self.config.pixel_diff_threshold = self.pixel_diff_threshold.value()
+            self.config.pixel_diff_interval = self.pixel_diff_interval.value()
+            self.config.ocr_api_url = self.ocr_api_url.text().strip()
+            self.config.ocr_api_key = self.ocr_api_key.text()
+            self.config.ocr_timeout = self.ocr_timeout.value()
+            self.config.ocr_min_confidence = self.ocr_min_confidence.value()
+            self.config.ocr_breaker_threshold = self.ocr_breaker_threshold.value()
+            self.config.ocr_breaker_cooldown = self.ocr_breaker_cooldown.value()
+            self.config.vlm_breaker_threshold = self.vlm_breaker_threshold.value()
+            self.config.vlm_breaker_cooldown = self.vlm_breaker_cooldown.value()
+            self.config.max_scroll_rounds = self.max_scroll_rounds.value()
             self.config.human_simulation_enabled = self.human_simulation_enabled.isChecked()
             self.config.rate_limit_hourly_max = self.rate_limit_hourly_max.value()
             self.config.rate_limit_daily_max = self.rate_limit_daily_max.value()

@@ -145,13 +145,14 @@ class SenderWorker(QThread):
             if not self._running:
                 break
 
-            if msgtype == "text":
-                if self._human_simulation_enabled:
-                    success = self.session.send_text_human(chat_name, content)
+            with self.session.window_lock:
+                if msgtype == "text":
+                    if self._human_simulation_enabled:
+                        success = self.session.send_text_human(chat_name, content)
+                    else:
+                        success = self.session.send_text(chat_name, content)
                 else:
-                    success = self.session.send_text(chat_name, content)
-            else:
-                success = self.session.send_file(chat_name, content)
+                    success = self.session.send_file(chat_name, content)
 
             if success:
                 if self._rate_limiter:

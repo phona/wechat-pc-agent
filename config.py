@@ -15,10 +15,26 @@ class AppConfig(BaseModel):
     agent_token: str = ""
     max_history_days: int = 30
     sync_state_path: str = ""
-    wechat_db_dir: str = ""
-    decrypted_db_dir: str = ""
-    wal_poll_interval_ms: int = 100
-    db_sync_timestamp: int = 0
+
+    # VLM vision settings (Layer 3 — expensive, fallback)
+    vlm_api_url: str = ""
+    vlm_model: str = "Qwen/Qwen3-VL-8B-Instruct"
+    vlm_timeout: float = 30.0
+    pixel_diff_threshold: float = 0.02
+    pixel_diff_interval: float = 1.5
+
+    # PaddleOCR settings (Layer 2 — cheap, frequent)
+    ocr_api_url: str = ""
+    ocr_api_key: str = ""
+    ocr_timeout: float = 10.0
+    ocr_min_confidence: float = 0.5
+
+    # Resilience / circuit breaker settings
+    ocr_breaker_threshold: int = 5
+    ocr_breaker_cooldown: float = 300.0
+    vlm_breaker_threshold: int = 3
+    vlm_breaker_cooldown: float = 600.0
+    max_scroll_rounds: int = 3
 
     # Human simulation settings
     human_simulation_enabled: bool = False
@@ -54,10 +70,6 @@ class AppConfig(BaseModel):
     def resolved_sync_state_path(self) -> str:
         return self._resolve_path("sync_state_path", "sync_state.json")
 
-    @property
-    def resolved_decrypted_db_dir(self) -> str:
-        return self._resolve_path("decrypted_db_dir", "decrypted")
-
     def save(self) -> None:
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
         CONFIG_FILE.write_text(json.dumps(self.model_dump(), indent=2), encoding="utf-8")
@@ -74,10 +86,15 @@ class AppConfig(BaseModel):
             agent_token=os.getenv("AGENT_TOKEN", ""),
             max_history_days=int(os.getenv("MAX_HISTORY_DAYS", str(cls.model_fields["max_history_days"].default))),
             sync_state_path=os.getenv("SYNC_STATE_PATH", ""),
-            wechat_db_dir=os.getenv("WECHAT_DB_DIR", ""),
-            decrypted_db_dir=os.getenv("DECRYPTED_DB_DIR", ""),
-            wal_poll_interval_ms=int(os.getenv("WAL_POLL_INTERVAL_MS", str(cls.model_fields["wal_poll_interval_ms"].default))),
-            db_sync_timestamp=int(os.getenv("DB_SYNC_TIMESTAMP", str(cls.model_fields["db_sync_timestamp"].default))),
+            vlm_api_url=os.getenv("VLM_API_URL", ""),
+            vlm_model=os.getenv("VLM_MODEL", cls.model_fields["vlm_model"].default),
+            vlm_timeout=float(os.getenv("VLM_TIMEOUT", str(cls.model_fields["vlm_timeout"].default))),
+            pixel_diff_threshold=float(os.getenv("PIXEL_DIFF_THRESHOLD", str(cls.model_fields["pixel_diff_threshold"].default))),
+            pixel_diff_interval=float(os.getenv("PIXEL_DIFF_INTERVAL", str(cls.model_fields["pixel_diff_interval"].default))),
+            ocr_api_url=os.getenv("OCR_API_URL", ""),
+            ocr_api_key=os.getenv("OCR_API_KEY", ""),
+            ocr_timeout=float(os.getenv("OCR_TIMEOUT", str(cls.model_fields["ocr_timeout"].default))),
+            ocr_min_confidence=float(os.getenv("OCR_MIN_CONFIDENCE", str(cls.model_fields["ocr_min_confidence"].default))),
             human_simulation_enabled=os.getenv("HUMAN_SIMULATION_ENABLED", "false").lower() == "true",
             behavior_profile_path=os.getenv("BEHAVIOR_PROFILE_PATH", ""),
             rate_limit_hourly_max=int(os.getenv("RATE_LIMIT_HOURLY_MAX", str(cls.model_fields["rate_limit_hourly_max"].default))),

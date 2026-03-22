@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-from wechat.ui_simulator import UISimulator, QWERTY_NEIGHBORS
+from wechat.simulation.ui_simulator import UISimulator, QWERTY_NEIGHBORS
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ class TestBezierMoveClick:
         delays = []
         original_sleep = time.sleep
 
-        with patch("wechat.ui_simulator.time.sleep", side_effect=lambda d: delays.append(d)):
+        with patch("wechat.simulation.ui_simulator.time.sleep", side_effect=lambda d: delays.append(d)):
             sim.bezier_move_click(700, 700, pag)
 
         # Filter out overshoot/correction delays — just look at main movement
@@ -67,7 +67,7 @@ class TestBezierMoveClick:
         # We just verify positions were collected and vary
         assert len(positions) >= 10
 
-    @patch("wechat.ui_simulator.random.random", return_value=0.05)
+    @patch("wechat.simulation.ui_simulator.random.random", return_value=0.05)
     def test_overshoot_produces_extra_moves(self, mock_rand, sim, pag):
         """When random < 0.12, overshoot should produce extra moveTo calls after main path."""
         sim.bezier_move_click(600, 600, pag)
@@ -115,7 +115,7 @@ class TestTypeText:
     def test_typo_produces_backspace_and_correction(self, pag):
         """Force a typo and verify backspace + correct char sequence."""
         sim = UISimulator(typo_enabled=True, typo_rate=1.0)  # 100% typo rate
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             sim.type_text("a", pag)
 
         # Should have: write(wrong), press(backspace), write('a')
@@ -128,7 +128,7 @@ class TestTypeText:
         """Wrong char should be from QWERTY neighbor map."""
         sim = UISimulator(typo_enabled=True, typo_rate=1.0)
         random.seed(42)
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             sim.type_text("f", pag)
 
         wrong_char = pag.write.call_args_list[0][0][0]
@@ -137,7 +137,7 @@ class TestTypeText:
     def test_uppercase_typo_stays_uppercase(self, pag):
         sim = UISimulator(typo_enabled=True, typo_rate=1.0)
         random.seed(42)
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             sim.type_text("F", pag)
 
         wrong_char = pag.write.call_args_list[0][0][0]
@@ -146,7 +146,7 @@ class TestTypeText:
     def test_bimodal_delays(self, sim_no_typo, pag):
         """Typing delays should have two modes: fast and hesitant."""
         delays = []
-        with patch("wechat.ui_simulator.time.sleep", side_effect=lambda d: delays.append(d)):
+        with patch("wechat.simulation.ui_simulator.time.sleep", side_effect=lambda d: delays.append(d)):
             random.seed(10)
             sim_no_typo.type_text("abcdefghijklmnop", pag)
 
@@ -165,7 +165,7 @@ class TestTypeText:
             return call_count < 3
 
         sim = UISimulator(running_check=check, typo_enabled=False)
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             sim.type_text("abcdefghij", pag)
 
         assert pag.write.call_count < 10
@@ -175,7 +175,7 @@ class TestTypeText:
 
 
 class TestPasteText:
-    @patch("wechat.ui_simulator.time.sleep")
+    @patch("wechat.simulation.ui_simulator.time.sleep")
     def test_paste_calls_ctrl_v(self, mock_sleep, pag):
         sim = UISimulator()
         mock_pyperclip = MagicMock()
@@ -191,27 +191,27 @@ class TestPasteText:
 class TestSimulateReading:
     def test_duration_proportional_to_length(self):
         sim = UISimulator()
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             short = sim.simulate_reading(10)
             long = sim.simulate_reading(200)
         assert long > short
 
     def test_clamped_minimum(self):
         sim = UISimulator()
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             result = sim.simulate_reading(1)
         assert result >= 1.0
 
     def test_clamped_maximum(self):
         sim = UISimulator()
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             result = sim.simulate_reading(10000)
         assert result <= 30.0
 
     def test_fidgets_when_pyautogui_provided(self, pag):
         sim = UISimulator()
         random.seed(42)
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             sim.simulate_reading(200, pyautogui=pag)
         # May have fidget mouse movements
         # Just verify it doesn't crash
@@ -225,7 +225,7 @@ class TestSimulateReading:
             return call_count < 3
 
         sim = UISimulator(running_check=check)
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             result = sim.simulate_reading(500)
         assert result < 30.0  # should not reach max
 
@@ -235,23 +235,23 @@ class TestSimulateReading:
 
 class TestIdleBehaviors:
     def test_perform_idle_action_returns_positive(self, sim, pag):
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             duration = sim.perform_idle_action(pag)
         assert duration > 0
 
     def test_idle_scroll_calls_scroll(self, sim, pag):
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             sim._idle_scroll(pag, (0, 0, 800, 600))
         pag.scroll.assert_called_once()
 
     def test_idle_mouse_wander_moves(self, sim, pag):
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             sim._idle_mouse_wander(pag, (0, 0, 800, 600))
         pag.moveTo.assert_called()
 
     def test_idle_do_nothing_sleeps(self, sim):
         delays = []
-        with patch("wechat.ui_simulator.time.sleep", side_effect=lambda d: delays.append(d)):
+        with patch("wechat.simulation.ui_simulator.time.sleep", side_effect=lambda d: delays.append(d)):
             sim._idle_do_nothing()
         assert sum(delays) >= 2.0
 
@@ -264,6 +264,6 @@ class TestIdleBehaviors:
         assert "do_nothing" in actions
 
     def test_idle_with_window_rect(self, sim, pag):
-        with patch("wechat.ui_simulator.time.sleep"):
+        with patch("wechat.simulation.ui_simulator.time.sleep"):
             sim.perform_idle_action(pag, window_rect=(100, 100, 900, 700))
         # Should not crash

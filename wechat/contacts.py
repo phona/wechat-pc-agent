@@ -17,19 +17,8 @@ class ContactCollector:
         return sessions
 
     def collect_friends(self) -> list[str]:
-        """Collect the friend list."""
-        try:
-            friends = self.session.wx.GetAllFriends()
-            names = []
-            if friends:
-                for f in friends:
-                    name = str(f) if isinstance(f, str) else getattr(f, "name", str(f))
-                    names.append(name)
-            logger.info("Collected %d friends", len(names))
-            return names
-        except Exception as e:
-            logger.error("Failed to collect friends: %s", e)
-            return []
+        """Collect visible chats as the friend/contact list (VLM-based)."""
+        return self.collect_sessions()
 
     def collect_all(self) -> dict:
         """Collect all available contact information."""

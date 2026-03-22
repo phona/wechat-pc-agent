@@ -1,14 +1,24 @@
+"""Tests for wechat.contacts — contact collection via vision-based session."""
+
 import pytest
 from unittest.mock import MagicMock
 
 from wechat.session import WeChatSession
 from wechat.contacts import ContactCollector
+from wechat.vision import ChatEntry, UIState
 
 
 @pytest.fixture
 def session():
     s = WeChatSession()
-    s._wx = MagicMock()
+    vision = MagicMock()
+    vision.state = UIState()
+    vision.state.visible_chats = [
+        ChatEntry("GroupA", False, 0, 100),
+        ChatEntry("Friend1", True, 1, 200),
+        ChatEntry("GroupB", False, 0, 300),
+    ]
+    s._vision = vision
     return s
 
 
@@ -18,48 +28,30 @@ def collector(session):
 
 
 def test_collect_sessions(collector, session):
-    session._wx.GetSessionList.return_value = ["GroupA", "Friend1", "GroupB"]
     result = collector.collect_sessions()
     assert result == ["GroupA", "Friend1", "GroupB"]
 
 
 def test_collect_sessions_empty(collector, session):
-    session._wx.GetSessionList.return_value = []
+    session._vision.state.visible_chats = []
     result = collector.collect_sessions()
     assert result == []
 
 
-def test_collect_friends(collector, session):
-    session._wx.GetAllFriends.return_value = ["Alice", "Bob"]
+def test_collect_friends(collector):
+    """collect_friends now returns the same as collect_sessions (VLM-based)."""
     result = collector.collect_friends()
-    assert result == ["Alice", "Bob"]
+    assert result == ["GroupA", "Friend1", "GroupB"]
 
 
-def test_collect_friends_with_objects(collector, session):
-    """Friend objects with .name attribute should be handled."""
-    friend = MagicMock()
-    friend.name = "Charlie"
-    friend.__str__ = lambda self: "Charlie"
-    session._wx.GetAllFriends.return_value = [friend]
-    result = collector.collect_friends()
-    assert result == ["Charlie"]
-
-
-def test_collect_friends_none(collector, session):
-    session._wx.GetAllFriends.return_value = None
+def test_collect_friends_no_vision():
+    s = WeChatSession()
+    collector = ContactCollector(s)
     result = collector.collect_friends()
     assert result == []
 
 
-def test_collect_friends_error(collector, session):
-    session._wx.GetAllFriends.side_effect = Exception("fail")
-    result = collector.collect_friends()
-    assert result == []
-
-
-def test_collect_all(collector, session):
-    session._wx.GetSessionList.return_value = ["GroupA"]
-    session._wx.GetAllFriends.return_value = ["Alice"]
+def test_collect_all(collector):
     result = collector.collect_all()
-    assert result["sessions"] == ["GroupA"]
-    assert result["friends"] == ["Alice"]
+    assert result["sessions"] == ["GroupA", "Friend1", "GroupB"]
+    assert result["friends"] == ["GroupA", "Friend1", "GroupB"]
