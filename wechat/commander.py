@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from typing import Any
 
@@ -17,10 +19,16 @@ class CommandDispatcher:
       - send_file: Send a file to a contact
       - open_chat: Open a chat window
       - list_contacts: Get all sessions and friends
+      - history_sync: Decrypt and sync historical messages to cloud
     """
 
     def __init__(self, session: WeChatSession):
         self.session = session
+        self._history_sync_callback: Any | None = None
+
+    def set_history_sync_callback(self, callback: Any) -> None:
+        """Set callback for starting history sync. Called with (params,) -> dict."""
+        self._history_sync_callback = callback
 
     def dispatch(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
         """Route an action to the right handler. Returns result dict."""
@@ -67,4 +75,9 @@ class CommandDispatcher:
         collector = ContactCollector(self.session)
         result = collector.collect_all()
         return {"status": "ok", "data": result}
+
+    def _do_history_sync(self, params: dict) -> dict:
+        if not self._history_sync_callback:
+            return {"status": "error", "error": "history sync not configured"}
+        return self._history_sync_callback(params)
 
