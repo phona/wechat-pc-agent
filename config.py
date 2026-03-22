@@ -38,10 +38,6 @@ class AppConfig(BaseModel):
     vlm_breaker_cooldown: float = 600.0
     max_scroll_rounds: int = 3
 
-    # WeChat database decryption settings
-    wechat_data_dir: str = ""  # auto-detect if empty
-    db_sync_interval_hours: float = 4.0  # periodic reconciliation interval
-
     # Human simulation settings
     human_simulation_enabled: bool = False
     behavior_profile_path: str = ""

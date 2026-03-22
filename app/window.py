@@ -22,7 +22,6 @@ from app.workers.sender_worker import SenderWorker
 from app.workers.contact_worker import ContactWorker
 from app.workers.ws_worker import WebSocketWorker
 from app.workers.vision_worker import VisionWorker
-from app.workers.db_sync_worker import DBSyncWorker
 from wechat.ui_state import UIStateManager
 
 
@@ -71,7 +70,6 @@ class MainWindow(QMainWindow):
         self._contact_worker: ContactWorker | None = None
         self._ws_worker: WebSocketWorker | None = None
         self._vision_worker: VisionWorker | None = None
-        self._db_sync_worker: DBSyncWorker | None = None
 
         # Connect button signals
         self.control_panel.btn_connect.clicked.connect(self._connect_wechat)
@@ -187,7 +185,6 @@ class MainWindow(QMainWindow):
 
         # Create WebSocket bridge first so SenderWorker can report status
         commander = CommandDispatcher(self.session)
-        commander.set_history_sync_callback(self._start_history_sync)
         self.ws_bridge = WebSocketBridge(
             ws_url=self.config.orchestrator_ws_url,
             token=self.config.agent_token,
@@ -251,73 +248,8 @@ class MainWindow(QMainWindow):
         self._vision_worker.start()
         self.log_viewer.append("Vision worker started", "SUCCESS")
 
-    def _start_history_sync(self, params: dict) -> dict:
-        """Start or trigger DB sync worker (called by commander)."""
-        # If already running, trigger a force sync cycle
-        if self._db_sync_worker and self._db_sync_worker.isRunning():
-            conversations = params.get("conversations")
-            self._db_sync_worker.force_sync(conversations)
-            return {"status": "ok", "data": {"message": "force sync triggered"}}
-
-        from pathlib import Path
-        from wechat.db import WeChatDBDecryptor, SyncState
-        from wechat.db.key_extract import find_wechat_key, find_wechat_data_dir
-        from utils.paths import data_dir
-
-        # Determine data directory
-        data_path = self.config.wechat_data_dir
-        if data_path:
-            wechat_dir = Path(data_path)
-        else:
-            wechat_dir = find_wechat_data_dir()
-            if not wechat_dir:
-                return {"status": "error", "error": "WeChat data directory not found"}
-
-        # Extract encryption key
-        enc_key_hex = params.get("enc_key")
-        if enc_key_hex:
-            enc_key = bytes.fromhex(enc_key_hex)
-        else:
-            enc_key = find_wechat_key()
-            if not enc_key:
-                return {"status": "error", "error": "Failed to extract encryption key"}
-
-        decryptor = WeChatDBDecryptor(wechat_dir, data_dir() / "decrypted")
-        decryptor.enc_key = enc_key
-
-        sync_state = SyncState(Path(self.config.resolved_sync_state_path))
-        sync_state.load()
-
-        conversations = params.get("conversations")
-
-        self._db_sync_worker = DBSyncWorker(
-            decryptor, self.ws_bridge, sync_state,
-            interval_hours=self.config.db_sync_interval_hours,
-            conversations=conversations,
-        )
-        self._db_sync_worker.log_message.connect(
-            lambda m: self.log_viewer.append(m, "INFO"),
-        )
-        self._db_sync_worker.error_occurred.connect(
-            lambda m: self.log_viewer.append(m, "ERROR"),
-        )
-        self._db_sync_worker.progress.connect(
-            lambda t, d, total: self.progress_panel.set_progress(
-                f"Syncing {t}", d, total,
-            ),
-        )
-        self._db_sync_worker.finished.connect(
-            lambda s: self.log_viewer.append(
-                f"DB sync cycle: {s.get('messages', 0)} new, "
-                f"{s.get('skipped', 0)} skipped", "SUCCESS",
-            ),
-        )
-        self._db_sync_worker.start()
-        self.log_viewer.append("DB sync worker started (periodic reconciliation enabled)", "INFO")
-        return {"status": "ok", "data": {"message": "db sync worker started"}}
-
     def _stop_all(self) -> None:
-        for worker in (self._sender_worker, self._ws_worker, self._vision_worker, self._db_sync_worker):
+        for worker in (self._sender_worker, self._ws_worker, self._vision_worker):
             if worker and worker.isRunning():
                 worker.stop()
         self.control_panel.set_running(False)
@@ -342,7 +274,7 @@ class MainWindow(QMainWindow):
             self.status_panel.set_wechat_status(ready)
 
     def closeEvent(self, event) -> None:
-        for worker in (self._sender_worker, self._ws_worker, self._vision_worker, self._db_sync_worker):
+        for worker in (self._sender_worker, self._ws_worker, self._vision_worker):
             if worker and worker.isRunning():
                 worker.stop()
                 worker.wait(3000)
