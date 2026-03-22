@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
-    QLabel, QLineEdit, QMessageBox, QSpinBox,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
+    QFormLayout, QLabel, QLineEdit, QMessageBox, QSpinBox,
 )
 
 from config import AppConfig
@@ -31,12 +31,23 @@ class SettingsDialog(QDialog):
         layout.addRow("API Token:", self.agent_token)
         layout.addRow("Max History:", self.max_history_days)
 
+        # --- API Settings (shared by VLM + OCR) ---
+        api_sep = QLabel("")
+        api_sep.setStyleSheet("border-top: 1px solid #ccc; margin: 8px 0;")
+        layout.addRow(api_sep)
+
+        self.api_url = QLineEdit(config.api_url)
+        self.api_key = QLineEdit(config.api_key)
+        self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
+
+        layout.addRow("API URL:", self.api_url)
+        layout.addRow("API Key:", self.api_key)
+
         # --- VLM Vision ---
         vlm_sep = QLabel("")
         vlm_sep.setStyleSheet("border-top: 1px solid #ccc; margin: 8px 0;")
         layout.addRow(vlm_sep)
 
-        self.vlm_api_url = QLineEdit(config.vlm_api_url)
         self.vlm_model = QLineEdit(config.vlm_model)
 
         self.vlm_timeout = QDoubleSpinBox()
@@ -55,51 +66,59 @@ class SettingsDialog(QDialog):
         self.pixel_diff_interval.setValue(config.pixel_diff_interval)
         self.pixel_diff_interval.setSuffix(" s")
 
-        layout.addRow("VLM API URL:", self.vlm_api_url)
         layout.addRow("VLM Model:", self.vlm_model)
         layout.addRow("VLM Timeout:", self.vlm_timeout)
         layout.addRow("Pixel Diff Threshold:", self.pixel_diff_threshold)
         layout.addRow("Pixel Diff Interval:", self.pixel_diff_interval)
 
-        # --- PaddleOCR ---
-        ocr_sep = QLabel("")
-        ocr_sep.setStyleSheet("border-top: 1px solid #ccc; margin: 8px 0;")
-        layout.addRow(ocr_sep)
+        # --- Light Model (Layer 2) ---
+        light_sep = QLabel("")
+        light_sep.setStyleSheet("border-top: 1px solid #ccc; margin: 8px 0;")
+        layout.addRow(light_sep)
 
-        self.ocr_api_url = QLineEdit(config.ocr_api_url)
-        self.ocr_api_key = QLineEdit(config.ocr_api_key)
-        self.ocr_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.light_model = QComboBox()
+        self.light_model.setEditable(True)
+        self.light_model.addItems([
+            "",
+            "deepseek-ai/DeepSeek-OCR",
+            "PaddlePaddle/PaddleOCR-VL",
+        ])
+        if config.light_model:
+            idx = self.light_model.findText(config.light_model)
+            if idx >= 0:
+                self.light_model.setCurrentIndex(idx)
+            else:
+                self.light_model.setCurrentText(config.light_model)
 
-        self.ocr_timeout = QDoubleSpinBox()
-        self.ocr_timeout.setRange(1.0, 60.0)
-        self.ocr_timeout.setValue(config.ocr_timeout)
-        self.ocr_timeout.setSuffix(" s")
+        self.light_timeout = QDoubleSpinBox()
+        self.light_timeout.setRange(1.0, 60.0)
+        self.light_timeout.setValue(config.light_timeout)
+        self.light_timeout.setSuffix(" s")
 
-        self.ocr_min_confidence = QDoubleSpinBox()
-        self.ocr_min_confidence.setRange(0.1, 1.0)
-        self.ocr_min_confidence.setDecimals(2)
-        self.ocr_min_confidence.setSingleStep(0.05)
-        self.ocr_min_confidence.setValue(config.ocr_min_confidence)
+        self.light_min_confidence = QDoubleSpinBox()
+        self.light_min_confidence.setRange(0.1, 1.0)
+        self.light_min_confidence.setDecimals(2)
+        self.light_min_confidence.setSingleStep(0.05)
+        self.light_min_confidence.setValue(config.light_min_confidence)
 
-        layout.addRow("OCR API URL:", self.ocr_api_url)
-        layout.addRow("OCR API Key:", self.ocr_api_key)
-        layout.addRow("OCR Timeout:", self.ocr_timeout)
-        layout.addRow("OCR Min Confidence:", self.ocr_min_confidence)
+        layout.addRow("Light Model:", self.light_model)
+        layout.addRow("Light Timeout:", self.light_timeout)
+        layout.addRow("Light Min Confidence:", self.light_min_confidence)
 
         # --- Resilience / Circuit Breaker ---
         res_sep = QLabel("")
         res_sep.setStyleSheet("border-top: 1px solid #ccc; margin: 8px 0;")
         layout.addRow(res_sep)
 
-        self.ocr_breaker_threshold = QSpinBox()
-        self.ocr_breaker_threshold.setRange(1, 50)
-        self.ocr_breaker_threshold.setValue(config.ocr_breaker_threshold)
-        self.ocr_breaker_threshold.setSuffix(" failures")
+        self.light_breaker_threshold = QSpinBox()
+        self.light_breaker_threshold.setRange(1, 50)
+        self.light_breaker_threshold.setValue(config.light_breaker_threshold)
+        self.light_breaker_threshold.setSuffix(" failures")
 
-        self.ocr_breaker_cooldown = QDoubleSpinBox()
-        self.ocr_breaker_cooldown.setRange(10.0, 3600.0)
-        self.ocr_breaker_cooldown.setValue(config.ocr_breaker_cooldown)
-        self.ocr_breaker_cooldown.setSuffix(" s")
+        self.light_breaker_cooldown = QDoubleSpinBox()
+        self.light_breaker_cooldown.setRange(10.0, 3600.0)
+        self.light_breaker_cooldown.setValue(config.light_breaker_cooldown)
+        self.light_breaker_cooldown.setSuffix(" s")
 
         self.vlm_breaker_threshold = QSpinBox()
         self.vlm_breaker_threshold.setRange(1, 50)
@@ -116,8 +135,8 @@ class SettingsDialog(QDialog):
         self.max_scroll_rounds.setValue(config.max_scroll_rounds)
 
         layout.addRow("Resilience:", QLabel(""))
-        layout.addRow("OCR Breaker Threshold:", self.ocr_breaker_threshold)
-        layout.addRow("OCR Breaker Cooldown:", self.ocr_breaker_cooldown)
+        layout.addRow("Light Breaker Threshold:", self.light_breaker_threshold)
+        layout.addRow("Light Breaker Cooldown:", self.light_breaker_cooldown)
         layout.addRow("VLM Breaker Threshold:", self.vlm_breaker_threshold)
         layout.addRow("VLM Breaker Cooldown:", self.vlm_breaker_cooldown)
         layout.addRow("Max Scroll Rounds:", self.max_scroll_rounds)
@@ -217,17 +236,17 @@ class SettingsDialog(QDialog):
             self.config.orchestrator_ws_url = self.orchestrator_ws_url.text().strip()
             self.config.agent_token = self.agent_token.text()
             self.config.max_history_days = self.max_history_days.value()
-            self.config.vlm_api_url = self.vlm_api_url.text().strip()
+            self.config.api_url = self.api_url.text().strip()
+            self.config.api_key = self.api_key.text()
             self.config.vlm_model = self.vlm_model.text().strip()
             self.config.vlm_timeout = self.vlm_timeout.value()
             self.config.pixel_diff_threshold = self.pixel_diff_threshold.value()
             self.config.pixel_diff_interval = self.pixel_diff_interval.value()
-            self.config.ocr_api_url = self.ocr_api_url.text().strip()
-            self.config.ocr_api_key = self.ocr_api_key.text()
-            self.config.ocr_timeout = self.ocr_timeout.value()
-            self.config.ocr_min_confidence = self.ocr_min_confidence.value()
-            self.config.ocr_breaker_threshold = self.ocr_breaker_threshold.value()
-            self.config.ocr_breaker_cooldown = self.ocr_breaker_cooldown.value()
+            self.config.light_model = self.light_model.currentText().strip()
+            self.config.light_timeout = self.light_timeout.value()
+            self.config.light_min_confidence = self.light_min_confidence.value()
+            self.config.light_breaker_threshold = self.light_breaker_threshold.value()
+            self.config.light_breaker_cooldown = self.light_breaker_cooldown.value()
             self.config.vlm_breaker_threshold = self.vlm_breaker_threshold.value()
             self.config.vlm_breaker_cooldown = self.vlm_breaker_cooldown.value()
             self.config.max_scroll_rounds = self.max_scroll_rounds.value()

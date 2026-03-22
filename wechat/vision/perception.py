@@ -14,7 +14,7 @@ import numpy as np
 
 from .circuit_breaker import CircuitBreaker
 from .diff_tracker import RegionDiffTracker, UnreadBadgeDetector
-from .ocr_client import PaddleOCRClient
+from .light_client import LightClient
 from .types import (
     BoundingBox,
     ChatEntry,
@@ -43,20 +43,20 @@ class VisionPerception:
         self,
         window: Any,  # WeChatWindow
         vlm_client: VLMClient | None,
-        ocr_client: PaddleOCRClient | None = None,
+        light_client: LightClient | None = None,
         pixel_diff_threshold: float = 0.02,
-        ocr_breaker_threshold: int = 5,
-        ocr_breaker_cooldown: float = 300.0,
+        light_breaker_threshold: int = 5,
+        light_breaker_cooldown: float = 300.0,
         vlm_breaker_threshold: int = 3,
         vlm_breaker_cooldown: float = 600.0,
     ) -> None:
         self._window = window
         self._vlm = vlm_client
-        self._ocr = ocr_client
+        self._light = light_client
         self._region_tracker = RegionDiffTracker(threshold=pixel_diff_threshold)
         self._state: UIState = UIState()
-        self._ocr_breaker = CircuitBreaker(
-            fail_threshold=ocr_breaker_threshold, cooldown=ocr_breaker_cooldown,
+        self._light_breaker = CircuitBreaker(
+            fail_threshold=light_breaker_threshold, cooldown=light_breaker_cooldown,
         )
         self._vlm_breaker = CircuitBreaker(
             fail_threshold=vlm_breaker_threshold, cooldown=vlm_breaker_cooldown,
@@ -110,8 +110,8 @@ class VisionPerception:
             self._calibrated_rect = None
 
         # Cross-validate chat names with OCR if available
-        if self._ocr:
-            self._ocr_validate_chat_names(full_frame)
+        if self._light:
+            self._light_validate_chat_names(full_frame)
 
         logger.info(
             "Calibration complete: %d elements, %d chats, %d tracked regions",
@@ -162,7 +162,7 @@ class VisionPerception:
 
         self._region_tracker.set_regions(regions)
 
-    def _ocr_validate_chat_names(self, full_frame: np.ndarray) -> None:
+    def _light_validate_chat_names(self, full_frame: np.ndarray) -> None:
         """Use OCR to cross-validate chat names from VLM calibration."""
         for region in self._region_tracker.regions.values():
             if region.region_type != RegionType.SIDEBAR_ROW:
@@ -177,7 +177,7 @@ class VisionPerception:
 
             try:
                 img_bytes = self._numpy_to_bytes(crop)
-                text, conf = self._ocr.recognize_text(img_bytes)
+                text, conf = self._light.recognize_text(img_bytes)
                 if conf > 0.7 and text:
                     # Use first line as chat name (top of row = name)
                     ocr_name = text.split("\n")[0].split(" ")[0].strip()
@@ -206,13 +206,13 @@ class VisionPerception:
 
     # --- Layer 2: OCR on changed regions ---
 
-    def ocr_sidebar_row(self, event: RegionChangeEvent) -> OCRResult | None:
+    def light_sidebar_row(self, event: RegionChangeEvent) -> OCRResult | None:
         """OCR a changed sidebar row + detect red badge.
 
         Returns OCRResult with chat name, preview text, and unread status.
         Returns None if OCR unavailable or circuit breaker open.
         """
-        if not self._ocr or self._ocr_breaker.is_open:
+        if not self._light or self._light_breaker.is_open:
             return None
 
         pixels = event.cropped_frame
@@ -220,11 +220,11 @@ class VisionPerception:
 
         try:
             img_bytes = self._numpy_to_bytes(pixels)
-            text, conf = self._ocr.recognize_text(img_bytes)
-            self._ocr_breaker.record_success()
+            text, conf = self._light.recognize_text(img_bytes)
+            self._light_breaker.record_success()
         except Exception as e:
             logger.error("OCR sidebar row failed: %s", e)
-            self._ocr_breaker.record_failure()
+            self._light_breaker.record_failure()
             return None
 
         return OCRResult(
@@ -234,28 +234,28 @@ class VisionPerception:
             has_unread_badge=has_badge,
         )
 
-    def ocr_message_area(self, event: RegionChangeEvent) -> list[OCRResult]:
+    def light_message_area(self, event: RegionChangeEvent) -> list[OCRResult]:
         """OCR the message area to extract new messages.
 
         Returns list of OCRResult, one per detected message block.
         Detects image bubbles (no text, large area) and voice bubbles (duration pattern).
         """
-        if not self._ocr or self._ocr_breaker.is_open:
+        if not self._light or self._light_breaker.is_open:
             return []
 
         pixels = event.cropped_frame
 
         try:
             img_bytes = self._numpy_to_bytes(pixels)
-            results = self._ocr.recognize(img_bytes)
-            self._ocr_breaker.record_success()
+            raw_items = self._light.recognize(img_bytes)
+            self._light_breaker.record_success()
         except Exception as e:
-            logger.error("OCR message area failed: %s", e)
-            self._ocr_breaker.record_failure()
+            logger.error("Light model message area failed: %s", e)
+            self._light_breaker.record_failure()
             return []
 
-        ocr_results = []
-        for item in results:
+        results = []
+        for item in raw_items:
             text = item.get("text", "")
             conf = item.get("confidence", item.get("score", 0.0))
 
@@ -269,7 +269,7 @@ class VisionPerception:
 
             is_voice = bool(re.match(r"^\d+[:'\"]\d{2}$", text.strip()))
 
-            ocr_results.append(OCRResult(
+            results.append(OCRResult(
                 text=text,
                 confidence=conf,
                 region_id=event.region.id,
@@ -279,8 +279,8 @@ class VisionPerception:
 
         # If OCR returned very few results but the area has significant pixel
         # changes, it might be an image bubble
-        if not ocr_results and event.diff_ratio > 0.1:
-            ocr_results.append(OCRResult(
+        if not results and event.diff_ratio > 0.1:
+            results.append(OCRResult(
                 text="",
                 confidence=0.0,
                 region_id=event.region.id,
@@ -288,9 +288,9 @@ class VisionPerception:
             ))
 
         # Sort by vertical position so messages are in reading order
-        ocr_results.sort(key=lambda r: r.position_y)
+        results.sort(key=lambda r: r.position_y)
 
-        return ocr_results
+        return results
 
     # --- Layer 3: VLM fallback ---
 

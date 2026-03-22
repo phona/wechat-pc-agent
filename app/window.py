@@ -89,26 +89,28 @@ class MainWindow(QMainWindow):
 
         # Create Win32 window + three-layer vision components
         from wechat.win32_utils import WeChatWindow
-        from wechat.vision import VLMClient, PaddleOCRClient, VisionPerception
+        from wechat.vision import VLMClient, LightClient, VisionPerception
 
         window = WeChatWindow()
         vlm = VLMClient(
-            api_url=self.config.vlm_api_url,
+            api_url=self.config.api_url,
+            api_key=self.config.api_key,
             model=self.config.vlm_model,
             timeout=self.config.vlm_timeout,
-        ) if self.config.vlm_api_url else None
+        ) if self.config.api_url else None
 
-        ocr = PaddleOCRClient(
-            api_url=self.config.ocr_api_url,
-            api_key=self.config.ocr_api_key,
-            timeout=self.config.ocr_timeout,
-        ) if self.config.ocr_api_url else None
+        light = LightClient(
+            api_url=self.config.api_url,
+            api_key=self.config.api_key,
+            model=self.config.light_model,
+            timeout=self.config.light_timeout,
+        ) if self.config.api_url and self.config.light_model else None
 
         vision = VisionPerception(
-            window, vlm, ocr,
+            window, vlm, light,
             pixel_diff_threshold=self.config.pixel_diff_threshold,
-            ocr_breaker_threshold=self.config.ocr_breaker_threshold,
-            ocr_breaker_cooldown=self.config.ocr_breaker_cooldown,
+            light_breaker_threshold=self.config.light_breaker_threshold,
+            light_breaker_cooldown=self.config.light_breaker_cooldown,
             vlm_breaker_threshold=self.config.vlm_breaker_threshold,
             vlm_breaker_cooldown=self.config.vlm_breaker_cooldown,
         ) if vlm else None

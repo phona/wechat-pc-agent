@@ -22,13 +22,14 @@ def test_defaults():
     assert cfg.agent_token == ""
     assert cfg.max_history_days == 30
     assert cfg.sync_state_path == ""
-    assert cfg.vlm_api_url == ""
-    assert cfg.vlm_model == "Qwen/Qwen3-VL-8B-Instruct"
+    assert cfg.api_url == ""
+    assert cfg.api_key == ""
+    assert cfg.vlm_model == "Qwen/Qwen2.5-VL-72B-Instruct"
     assert cfg.vlm_timeout == 30.0
     assert cfg.pixel_diff_threshold == 0.02
     assert cfg.pixel_diff_interval == 1.5
-    assert cfg.ocr_breaker_threshold == 5
-    assert cfg.ocr_breaker_cooldown == 300.0
+    assert cfg.light_breaker_threshold == 5
+    assert cfg.light_breaker_cooldown == 300.0
     assert cfg.vlm_breaker_threshold == 3
     assert cfg.vlm_breaker_cooldown == 600.0
     assert cfg.max_scroll_rounds == 3
@@ -90,7 +91,7 @@ def test_load_defaults_when_no_env(tmp_config_dir):
     """When no config file and no env vars, use defaults."""
     env_keys = [
         "ORCHESTRATOR_URL", "ORCHESTRATOR_WS_URL", "AGENT_TOKEN",
-        "MAX_HISTORY_DAYS", "SYNC_STATE_PATH", "VLM_API_URL",
+        "MAX_HISTORY_DAYS", "SYNC_STATE_PATH", "API_URL", "API_KEY",
         "VLM_MODEL", "VLM_TIMEOUT", "PIXEL_DIFF_THRESHOLD",
         "PIXEL_DIFF_INTERVAL",
     ]

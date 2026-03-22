@@ -15,10 +15,12 @@ class VLMClient:
     def __init__(
         self,
         api_url: str,
+        api_key: str = "",
         model: str = "Qwen/Qwen3-VL-8B-Instruct",
         timeout: float = 30.0,
     ) -> None:
         self._api_url = api_url.rstrip("/")
+        self._api_key = api_key
         self._model = model
         self._timeout = timeout
 
@@ -46,10 +48,15 @@ class VLMClient:
             "temperature": 0.1,
         }
 
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+
         with httpx.Client(timeout=self._timeout) as client:
             resp = client.post(
                 f"{self._api_url}/v1/chat/completions",
                 json=payload,
+                headers=headers,
             )
             resp.raise_for_status()
             data = resp.json()

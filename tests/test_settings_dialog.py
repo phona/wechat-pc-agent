@@ -115,6 +115,37 @@ class _QCheckBox(_Widget):
         self._checked = value
 
 
+class _QComboBox(_Widget):
+    def __init__(self):
+        self._items = []
+        self._current_index = 0
+        self._current_text = ""
+        self._editable = False
+
+    def setEditable(self, editable):
+        self._editable = editable
+
+    def addItems(self, items):
+        self._items.extend(items)
+
+    def findText(self, text):
+        try:
+            return self._items.index(text)
+        except ValueError:
+            return -1
+
+    def setCurrentIndex(self, index):
+        self._current_index = index
+        if 0 <= index < len(self._items):
+            self._current_text = self._items[index]
+
+    def setCurrentText(self, text):
+        self._current_text = text
+
+    def currentText(self):
+        return self._current_text
+
+
 class _QLabel(_Widget):
     def __init__(self, text=""):
         self._text = text
@@ -134,6 +165,7 @@ class _QMessageBox:
 def _install_qtwidgets_stub():
     qtwidgets = ModuleType("PyQt6.QtWidgets")
     qtwidgets.QCheckBox = _QCheckBox
+    qtwidgets.QComboBox = _QComboBox
     qtwidgets.QDialog = _QDialog
     qtwidgets.QDialogButtonBox = _QDialogButtonBox
     qtwidgets.QDoubleSpinBox = _QDoubleSpinBox
@@ -162,7 +194,8 @@ def test_settings_dialog_uses_current_config_fields(tmp_path):
         orchestrator_ws_url="ws://example.test/ws/agent",
         agent_token="token-1",
         max_history_days=10,
-        vlm_api_url="http://vlm.test",
+        api_url="http://api.test",
+        api_key="test-key",
     )
     config_file = tmp_path / "config.json"
 
@@ -172,7 +205,8 @@ def test_settings_dialog_uses_current_config_fields(tmp_path):
         dialog.orchestrator_ws_url.setText("ws://changed.test/ws/agent")
         dialog.agent_token.setText("token-2")
         dialog.max_history_days.setValue(45)
-        dialog.vlm_api_url.setText("http://vlm-new.test")
+        dialog.api_url.setText("http://api-new.test")
+        dialog.api_key.setText("new-key")
         dialog.vlm_model.setText("test-model")
         dialog.vlm_timeout.setValue(60.0)
         dialog.pixel_diff_threshold.setValue(0.05)
@@ -182,8 +216,8 @@ def test_settings_dialog_uses_current_config_fields(tmp_path):
         dialog.rate_limit_daily_max.setValue(200)
         dialog.min_send_interval.setValue(5.0)
         dialog.behavior_profile_path.setText("/tmp/profile.json")
-        dialog.ocr_breaker_threshold.setValue(10)
-        dialog.ocr_breaker_cooldown.setValue(120.0)
+        dialog.light_breaker_threshold.setValue(10)
+        dialog.light_breaker_cooldown.setValue(120.0)
         dialog.vlm_breaker_threshold.setValue(5)
         dialog.vlm_breaker_cooldown.setValue(900.0)
         dialog.max_scroll_rounds.setValue(5)
@@ -194,7 +228,8 @@ def test_settings_dialog_uses_current_config_fields(tmp_path):
     assert cfg.orchestrator_ws_url == "ws://changed.test/ws/agent"
     assert cfg.agent_token == "token-2"
     assert cfg.max_history_days == 45
-    assert cfg.vlm_api_url == "http://vlm-new.test"
+    assert cfg.api_url == "http://api-new.test"
+    assert cfg.api_key == "new-key"
     assert cfg.vlm_model == "test-model"
     assert cfg.vlm_timeout == 60.0
     assert cfg.pixel_diff_threshold == 0.05
@@ -204,8 +239,8 @@ def test_settings_dialog_uses_current_config_fields(tmp_path):
     assert cfg.rate_limit_daily_max == 200
     assert cfg.min_send_interval == 5.0
     assert cfg.behavior_profile_path == "/tmp/profile.json"
-    assert cfg.ocr_breaker_threshold == 10
-    assert cfg.ocr_breaker_cooldown == 120.0
+    assert cfg.light_breaker_threshold == 10
+    assert cfg.light_breaker_cooldown == 120.0
     assert cfg.vlm_breaker_threshold == 5
     assert cfg.vlm_breaker_cooldown == 900.0
     assert cfg.max_scroll_rounds == 5

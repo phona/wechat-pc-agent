@@ -126,7 +126,7 @@ class VisionWorker(QThread):
         self, event: RegionChangeEvent, vlm_queue: list,
     ) -> None:
         """Layer 2: OCR a changed sidebar row."""
-        ocr = self._vision.ocr_sidebar_row(event)
+        ocr = self._vision.light_sidebar_row(event)
 
         if ocr is None or self._vision.needs_vlm_fallback(ocr):
             vlm_queue.append(event)
@@ -159,7 +159,7 @@ class VisionWorker(QThread):
         self, event: RegionChangeEvent, vlm_queue: list,
     ) -> None:
         """Layer 2: OCR the message area for new messages."""
-        ocr_results = self._vision.ocr_message_area(event)
+        ocr_results = self._vision.light_message_area(event)
 
         for ocr in ocr_results:
             if not self._running:

@@ -13,7 +13,7 @@ from wechat.vision import (
     ChatEntry,
     CircuitBreaker,
     OCRResult,
-    PaddleOCRClient,
+    LightClient,
     RegionChangeEvent,
     RegionDiffTracker,
     RegionType,
@@ -168,21 +168,29 @@ class TestUnreadBadgeDetector:
 
 
 # ---------------------------------------------------------------------------
-# PaddleOCRClient
+# LightClient
 # ---------------------------------------------------------------------------
 
-class TestPaddleOCRClient:
-    def test_recognize(self):
-        client = PaddleOCRClient(api_url="http://localhost:9000")
-
+class TestLightClient:
+    def _make_chat_response(self, content: str) -> MagicMock:
+        """Helper: create a mock OpenAI-compatible chat completion response."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "results": [
-                {"text": "张三", "confidence": 0.95, "position": [[0, 0], [50, 20]]},
-                {"text": "你好", "confidence": 0.88, "position": [[0, 20], [50, 40]]},
-            ]
+            "choices": [{"message": {"content": content}}]
         }
         mock_response.raise_for_status = MagicMock()
+        return mock_response
+
+    def test_recognize(self):
+        client = LightClient(
+            api_url="http://localhost:9000", model="ocr-model",
+        )
+
+        ocr_json = json.dumps([
+            {"text": "张三", "confidence": 0.95, "position": [[0, 0], [50, 0], [50, 20], [0, 20]]},
+            {"text": "你好", "confidence": 0.88, "position": [[0, 20], [50, 20], [50, 40], [0, 40]]},
+        ])
+        mock_response = self._make_chat_response(ocr_json)
 
         with patch("httpx.Client") as mock_httpx:
             mock_ctx = MagicMock()
@@ -193,18 +201,20 @@ class TestPaddleOCRClient:
             results = client.recognize(b"fake_image")
             assert len(results) == 2
             assert results[0]["text"] == "张三"
+            # Verify OpenAI-compatible endpoint
+            call_args = mock_ctx.post.call_args
+            assert "/v1/chat/completions" in call_args[0][0]
 
     def test_recognize_text(self):
-        client = PaddleOCRClient(api_url="http://localhost:9000")
+        client = LightClient(
+            api_url="http://localhost:9000", model="ocr-model",
+        )
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "results": [
-                {"text": "张三", "confidence": 0.95},
-                {"text": "最近怎么样", "confidence": 0.80},
-            ]
-        }
-        mock_response.raise_for_status = MagicMock()
+        ocr_json = json.dumps([
+            {"text": "张三", "confidence": 0.95},
+            {"text": "最近怎么样", "confidence": 0.80},
+        ])
+        mock_response = self._make_chat_response(ocr_json)
 
         with patch("httpx.Client") as mock_httpx:
             mock_ctx = MagicMock()
@@ -217,11 +227,11 @@ class TestPaddleOCRClient:
             assert conf == 0.80
 
     def test_recognize_text_empty(self):
-        client = PaddleOCRClient(api_url="http://localhost:9000")
+        client = LightClient(
+            api_url="http://localhost:9000", model="ocr-model",
+        )
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"results": []}
-        mock_response.raise_for_status = MagicMock()
+        mock_response = self._make_chat_response("[]")
 
         with patch("httpx.Client") as mock_httpx:
             mock_ctx = MagicMock()
@@ -234,13 +244,12 @@ class TestPaddleOCRClient:
             assert conf == 0.0
 
     def test_api_key_header(self):
-        client = PaddleOCRClient(
+        client = LightClient(
             api_url="http://localhost:9000", api_key="test-key",
+            model="ocr-model",
         )
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"results": []}
-        mock_response.raise_for_status = MagicMock()
+        mock_response = self._make_chat_response("[]")
 
         with patch("httpx.Client") as mock_httpx:
             mock_ctx = MagicMock()
@@ -251,6 +260,23 @@ class TestPaddleOCRClient:
             client.recognize(b"fake_image")
             call_kwargs = mock_ctx.post.call_args[1]
             assert call_kwargs["headers"]["Authorization"] == "Bearer test-key"
+
+    def test_parse_markdown_fenced_response(self):
+        client = LightClient(
+            api_url="http://localhost:9000", model="ocr-model",
+        )
+        result = client._parse_response('```json\n[{"text": "hello", "confidence": 0.9}]\n```')
+        assert len(result) == 1
+        assert result[0]["text"] == "hello"
+
+    def test_parse_plain_text_fallback(self):
+        client = LightClient(
+            api_url="http://localhost:9000", model="ocr-model",
+        )
+        result = client._parse_response("line one\nline two")
+        assert len(result) == 2
+        assert result[0]["text"] == "line one"
+        assert result[1]["text"] == "line two"
 
 
 # ---------------------------------------------------------------------------
@@ -328,7 +354,7 @@ MOCK_CHAT_RESPONSE = json.dumps({
 
 
 class TestVisionPerception:
-    def _make_perception(self, with_ocr=False):
+    def _make_perception(self, with_light=False):
         window = MagicMock()
         window.get_rect.return_value = (0, 0, 1920, 1080)
 
@@ -342,10 +368,10 @@ class TestVisionPerception:
         window.screenshot_full.return_value = fake_img
 
         vlm = MagicMock(spec=VLMClient)
-        ocr = MagicMock(spec=PaddleOCRClient) if with_ocr else None
+        light = MagicMock(spec=LightClient) if with_light else None
 
-        perception = VisionPerception(window, vlm, ocr, pixel_diff_threshold=0.02)
-        return perception, window, vlm, ocr
+        perception = VisionPerception(window, vlm, light, pixel_diff_threshold=0.02)
+        return perception, window, vlm, light
 
     def test_calibrate(self):
         perception, window, vlm, _ = self._make_perception()
@@ -392,9 +418,9 @@ class TestVisionPerception:
         # Just verify it returns a list
         assert isinstance(changes, list)
 
-    def test_ocr_sidebar_row(self):
-        perception, _, vlm, ocr = self._make_perception(with_ocr=True)
-        ocr.recognize_text.return_value = ("张三 最近怎么样", 0.92)
+    def test_light_sidebar_row(self):
+        perception, _, vlm, light = self._make_perception(with_light=True)
+        light.recognize_text.return_value = ("张三 最近怎么样", 0.92)
 
         region = TrackedRegion(
             id="row_0", region_type=RegionType.SIDEBAR_ROW,
@@ -405,15 +431,15 @@ class TestVisionPerception:
                                   cropped_frame=pixels)
 
         with patch.object(perception, "_numpy_to_bytes", return_value=b"PNG"):
-            result = perception.ocr_sidebar_row(event)
+            result = perception.light_sidebar_row(event)
         assert result is not None
         assert "张三" in result.text
         assert result.confidence == 0.92
         assert result.has_unread_badge is False
 
-    def test_ocr_sidebar_row_with_badge(self):
-        perception, _, vlm, ocr = self._make_perception(with_ocr=True)
-        ocr.recognize_text.return_value = ("李四 发票开好了吗", 0.88)
+    def test_light_sidebar_row_with_badge(self):
+        perception, _, vlm, light = self._make_perception(with_light=True)
+        light.recognize_text.return_value = ("李四 发票开好了吗", 0.88)
 
         region = TrackedRegion(
             id="row_1", region_type=RegionType.SIDEBAR_ROW,
@@ -427,12 +453,12 @@ class TestVisionPerception:
                                   cropped_frame=pixels)
 
         with patch.object(perception, "_numpy_to_bytes", return_value=b"PNG"):
-            result = perception.ocr_sidebar_row(event)
+            result = perception.light_sidebar_row(event)
         assert result is not None
         assert result.has_unread_badge is True
 
-    def test_ocr_sidebar_row_no_ocr_client(self):
-        perception, _, _, _ = self._make_perception(with_ocr=False)
+    def test_light_sidebar_row_no_ocr_client(self):
+        perception, _, _, _ = self._make_perception(with_light=False)
         region = TrackedRegion(
             id="row_0", region_type=RegionType.SIDEBAR_ROW,
             bbox=BoundingBox(80, 100, 320, 64),
@@ -441,7 +467,7 @@ class TestVisionPerception:
             region=region, diff_ratio=0.05,
             cropped_frame=np.zeros((64, 320, 3), dtype=np.uint8),
         )
-        assert perception.ocr_sidebar_row(event) is None
+        assert perception.light_sidebar_row(event) is None
 
     def test_needs_vlm_fallback_image(self):
         perception, _, _, _ = self._make_perception()
@@ -499,11 +525,11 @@ class TestVisionPerception:
         assert h1 != h3
         assert len(h1) == 12
 
-    def test_ocr_breaker_skips_when_open(self):
-        perception, _, vlm, ocr = self._make_perception(with_ocr=True)
+    def test_light_breaker_skips_when_open(self):
+        perception, _, vlm, light = self._make_perception(with_light=True)
         # Trip the OCR breaker
         for _ in range(5):
-            perception._ocr_breaker.record_failure()
+            perception._light_breaker.record_failure()
 
         region = TrackedRegion(
             id="row_0", region_type=RegionType.SIDEBAR_ROW,
@@ -514,9 +540,9 @@ class TestVisionPerception:
             cropped_frame=np.zeros((64, 320, 3), dtype=np.uint8),
         )
         # Should return None without calling OCR
-        result = perception.ocr_sidebar_row(event)
+        result = perception.light_sidebar_row(event)
         assert result is None
-        ocr.recognize_text.assert_not_called()
+        light.recognize_text.assert_not_called()
 
     def test_vlm_breaker_skips_when_open(self):
         perception, _, vlm, _ = self._make_perception()
@@ -528,9 +554,9 @@ class TestVisionPerception:
         assert result == []
         vlm.call_sync.assert_not_called()
 
-    def test_ocr_message_area_sorted_by_position(self):
-        perception, _, vlm, ocr = self._make_perception(with_ocr=True)
-        ocr.recognize.return_value = [
+    def test_light_message_area_sorted_by_position(self):
+        perception, _, vlm, light = self._make_perception(with_light=True)
+        light.recognize.return_value = [
             {"text": "second", "confidence": 0.9, "position": [[0, 200], [100, 220]]},
             {"text": "first", "confidence": 0.9, "position": [[0, 50], [100, 70]]},
             {"text": "third", "confidence": 0.9, "position": [[0, 400], [100, 420]]},
@@ -546,7 +572,7 @@ class TestVisionPerception:
         )
 
         with patch.object(perception, "_numpy_to_bytes", return_value=b"PNG"):
-            results = perception.ocr_message_area(event)
+            results = perception.light_message_area(event)
 
         assert len(results) == 3
         assert results[0].text == "first"
