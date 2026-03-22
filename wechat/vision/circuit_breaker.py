@@ -22,7 +22,7 @@ class CircuitBreaker:
         if self._fail_count < self._fail_threshold:
             return False
         # Past cooldown → half-open (allow one attempt)
-        if time.time() - self._open_since > self._cooldown:
+        if time.time() - self._open_since >= self._cooldown:
             return False
         return True
 
